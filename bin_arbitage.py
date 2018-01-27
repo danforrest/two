@@ -34,6 +34,7 @@ neoeth_conn_key = None
 btcusdt_conn_key = None
 ethusdt_conn_key = None
 bnbusdt_conn_key = None
+account_conn_key = None
 
 COIN1 = 'BNB'
 COIN2 = 'ETH'
@@ -129,14 +130,11 @@ raw_order_book = {'BNBBTC': OrderBook(),
                   'ETHUSDT': OrderBook(),
                   'BNBUSDT': OrderBook()}
 
-balance_book = {'BNBBTC': 0.0,
-                'ETHBTC': 0.0,
-                'BNBETH': 0.0,
-                'NEOBTC': 0.0,
-                'NEOETH': 0.0,
-                'BTCUSDT': 0.0,
-                'ETHUSDT': 0.0,
-                'BNBUSDT': 0.0}
+balance_book = {'BNB': 0.0,
+                'ETH': 0.0,
+                'BTC': 0.0,
+                'NEO': 0.0,
+                'USDT': 0.0}
 
 trade_order_book = {}
 
@@ -191,10 +189,17 @@ def process_bnbusdt_depth_message(msg):
 
 def process_account_message(msg):
     global balance_book
-    print('user stream message: ', msg)
-    # TODO Finish this part
-    # balance_book['BNBUSDT'].bid = float(msg['bids'][0][0])
-    # raw_order_book['BNBUSDT'].ask = float(msg['asks'][0][0])
+    #print('user stream message: ', msg)
+    if 'e' in msg and msg['e'] != 'outboundAccountInfo':
+        # we only care about account info for now
+        return
+    if 'B' not in msg:
+        # the outboundAccountInfo message should have balances
+        return
+    for asset in msg['B']:
+        if asset['a'] in balance_book:
+            #print('asset: ', asset['a'], 'balance: ', asset['f'])
+            balance_book[asset['a']] = float(asset['f'])
 
 
 def update_order(order, original_quantity, check_level):
@@ -413,6 +418,19 @@ def print_order_status(pair1_order, pair2_order, pair3_order):
     print(status_string)
 
 
+def query_initial_coin_balances():
+    result = client.get_account()
+    for asset in result['balances']:
+        if asset['asset'] == COIN1:
+            balance_book[asset['asset']] += float(asset['free'])
+        elif asset['asset'] == COIN2:
+            balance_book[asset['asset']] += float(asset['free'])
+        elif asset['asset'] == COIN3:
+            balance_book[asset['asset']] += float(asset['free'])
+        elif asset['asset'] == 'BNB':
+            balance_book[asset['asset']] += float(asset['free'])
+
+
 def launch_socket_listeners():
     global bm
     global bnbbtc_conn_key
@@ -423,6 +441,7 @@ def launch_socket_listeners():
     global btcusdt_conn_key
     global ethusdt_conn_key
     global bnbusdt_conn_key
+    global account_conn_key
     global raw_order_book
 
     bm = BinanceSocketManager(client)
@@ -477,6 +496,7 @@ def shutdown_socket_listeners():
     global btcusdt_conn_key
     global ethusdt_conn_key
     global bnbusdt_conn_key
+    global account_conn_key
     bm.stop_socket(bnbbtc_conn_key)
     bm.stop_socket(ethbtc_conn_key)
     bm.stop_socket(bnbeth_conn_key)
@@ -485,6 +505,7 @@ def shutdown_socket_listeners():
     bm.stop_socket(btcusdt_conn_key)
     bm.stop_socket(ethusdt_conn_key)
     bm.stop_socket(bnbusdt_conn_key)
+    bm.stop_socket(account_conn_key)
 
 
 def cancel_all_orders():
@@ -507,6 +528,7 @@ def cancel_all_orders():
 #
 # sys.exit(0)
 
+query_initial_coin_balances()
 launch_socket_listeners()
 
 total_return = 0.0
@@ -516,7 +538,6 @@ print('find some trades')
 while True:
     try:
 
-        result = client.get_account()
         # calculate balance of each coin
         start_coin1_balance = 0.0
         start_coin2_balance = 0.0
@@ -526,15 +547,15 @@ while True:
         start_coin2_value = 0.0
         start_coin3_value = 0.0
         start_bnb_value = 0.0
-        for asset in result['balances']:
-            if asset['asset'] == COIN1:
-                start_coin1_balance += float(asset['free'])
-            elif asset['asset'] == COIN2:
-                start_coin2_balance += float(asset['free'])
-            elif asset['asset'] == COIN3:
-                start_coin3_balance += float(asset['free'])
-            elif asset['asset'] == 'BNB':
-                start_bnb_balance += float(asset['free'])
+        for coin in balance_book:
+            if coin == COIN1:
+                start_coin1_balance = balance_book[coin]
+            elif coin == COIN2:
+                start_coin2_balance = balance_book[coin]
+            elif coin == COIN3:
+                start_coin3_balance = balance_book[coin]
+            elif coin == 'BNB':
+                start_bnb_balance = balance_book[coin]
 
         # calculate the value of each coin in dollars
         if COIN1+'USDT' in raw_order_book:
@@ -754,23 +775,24 @@ while True:
             if pair3_order != EMPTY_ORDER and pair3_order['status'] != 'FILLED':
                 print('cancel pair3_order')
                 cancel_order(pair3_order)
+            # give the system 1 second for balances to be updated
+            time.sleep(1)
 
         order_end_time = datetime.utcnow().isoformat()
 
-        result = client.get_account()
         end_coin1_balance = 0.0
         end_coin3_balance = 0.0
         end_coin2_balance = 0.0
         end_bnb_balance = 0.0
-        for asset in result['balances']:
-            if asset['asset'] == COIN1:
-                end_coin1_balance += float(asset['free'])
-            elif asset['asset'] == COIN2:
-                end_coin2_balance += float(asset['free'])
-            elif asset['asset'] == COIN3:
-                end_coin3_balance += float(asset['free'])
-            elif asset['asset'] == 'BNB':
-                end_bnb_balance += float(asset['free'])
+        for coin in balance_book:
+            if coin == COIN1:
+                end_coin1_balance = balance_book[coin]
+            elif coin == COIN2:
+                end_coin2_balance = balance_book[coin]
+            elif coin == COIN3:
+                end_coin3_balance = balance_book[coin]
+            elif coin == 'BNB':
+                end_bnb_balance = balance_book[coin]
         end_coin1_value = end_coin1_balance * coin1_price
         end_coin2_value = end_coin2_balance * coin2_price
         end_coin3_value = end_coin3_balance * coin3_price
@@ -841,8 +863,11 @@ while True:
         print('total start: ', start_total_value, 'total end: ', end_total_value)
         print('total ' + COIN1 + ': ', total_coin1_balance, 'total ' + COIN2 + ': ', total_coin2_balance, 'total ' + COIN3 + ': ', total_coin3_balance)
         print('return: ', final_return, total_return)
-
-        time.sleep(2)
+        if found_order:
+            # pause a short bit so we can read the results
+            # long term, this can be removed
+            time.sleep(1)
+        time.sleep(1)
         timestamp_exceptions = 0
     except exceptions.BinanceAPIException as e:
         exception_logger.error('Time: ' + datetime.utcnow().isoformat())
