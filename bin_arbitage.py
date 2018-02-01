@@ -2,27 +2,22 @@ from binance.client import Client
 from binance.websockets import BinanceSocketManager
 import sys
 import time
-from binance.enums import *
 from binance import exceptions
 import logging
-from datetime import datetime, date
+from datetime import datetime, timedelta
 import requests
-
-order_logger = logging.getLogger('order_tracker')
-order_logger.setLevel(logging.DEBUG)
-exception_logger = logging.getLogger('exception_tracker')
-exception_logger.setLevel(logging.DEBUG)
-
-order_log_file_handler = logging.FileHandler('logs\order_tracker_%s.log' % datetime.utcnow().date().isoformat())
-order_log_file_handler.setLevel(logging.INFO)
-exception_log_file_handler = logging.FileHandler('logs\exception_tracker_%s.log' % datetime.utcnow().date().isoformat())
-exception_log_file_handler.setLevel(logging.INFO)
-
-order_logger.addHandler(order_log_file_handler)
-exception_logger.addHandler(exception_log_file_handler)
 
 api_key = 'RO0yfaBhlsb6rRZ3eAajt9Ptx347izGlfihXOskGhnk1NFcMVn4en7uTdtHAFfgD'
 api_secret = 'suH3HixQOlGKCeV4vqA8eEhU1lFJgJQuexzZIomkJJ6JUwOnWk8ugLDdVq2XJBU7'
+
+HALF_DAY = timedelta(hours=12)
+ONE_DAY = timedelta(days=1)
+socket_start_time = None
+log_start_time = None
+
+exception_logger = None
+order_logger = None
+
 client = Client(api_key, api_secret)
 bm = BinanceSocketManager(client)
 
@@ -36,10 +31,6 @@ ethusdt_conn_key = None
 bnbusdt_conn_key = None
 account_conn_key = None
 
-COIN1 = 'BNB'
-COIN2 = 'ETH'
-COIN3 = 'BTC'
-
 EMPTY_ORDER = {'status': 'None',
                'orderId': 'None',
                'price': 0.0,
@@ -50,10 +41,6 @@ EMPTY_ORDER = {'status': 'None',
 # pair priorities USDT always comes last in a pair.  BTC always comes after all
 # coins other than USDT.  ETH comes after all coins other than USDT and BTC.
 # also, pair should go COIN1/COIN3, COIN2/COIN1, COIN2/COIN3
-PAIR1 = 'BNBBTC'
-PAIR2 = 'ETHBTC'
-PAIR3 = 'BNBETH'
-
 COIN1 = 'BTC'
 COIN2 = 'ETH'
 COIN3 = 'USDT'
@@ -112,7 +99,7 @@ MIN_NOTIONAL = {'BNBBTC': 0.0,
                 'ETHUSDT': 20.0}
 
 FEE = 0.0005
-THRESHOLD = 1.0019 # + (4 * FEE)
+THRESHOLD = 1.0018 # + (4 * FEE)
 BNB_QUANTITY = 6.0
 
 
@@ -130,7 +117,8 @@ raw_order_book = {'BNBBTC': OrderBook(),
                   'ETHUSDT': OrderBook(),
                   'BNBUSDT': OrderBook()}
 
-balance_book = {'BNB': 0.0,
+balance_book = {'timestamp': None,
+                'BNB': 0.0,
                 'ETH': 0.0,
                 'BTC': 0.0,
                 'NEO': 0.0,
@@ -200,6 +188,7 @@ def process_account_message(msg):
         if asset['a'] in balance_book:
             #print('asset: ', asset['a'], 'balance: ', asset['f'])
             balance_book[asset['a']] = float(asset['f']) + float(asset['l'])
+    balance_book['timestamp'] = datetime.utcnow()
 
 
 def update_order(order, original_quantity, check_level):
@@ -210,6 +199,7 @@ def update_order(order, original_quantity, check_level):
         return None
 
     new_order = None
+    price = 0.0
 
     order_quantity = float(order['origQty'])
     executed_quantity = float(order['executedQty'])
@@ -265,7 +255,7 @@ def update_order(order, original_quantity, check_level):
 
 
 def cancel_order(order):
-    new_quantity = round(float(order['origQty']) - float(order['executedQty']), 2)
+    # new_quantity = round(float(order['origQty']) - float(order['executedQty']), 2)
     print('Canceled: ', order['symbol'])
     try:
         client.cancel_order(symbol=order['symbol'], orderId=order['orderId'])
@@ -347,11 +337,9 @@ def build_trade_order_book():
 def calculate_coin_ratio(coin1, coin2):
     global trade_order_book
     if coin1+coin2 in [PAIR1, PAIR2, PAIR3]:
-        # print(coin1, coin2, 'bid: ', trade_order_book[coin1+coin2].bid, 'ask: ', trade_order_book[coin1+coin2].ask)
         coin1_per_coin2 = 1 / trade_order_book[coin1+coin2].bid
         coin2_per_coin1 = trade_order_book[coin1+coin2].ask
     elif coin2+coin1 in [PAIR1, PAIR2, PAIR3]:
-        # print(coin1, coin2, 'bid: ', trade_order_book[coin2+coin1].bid, 'ask: ', trade_order_book[coin2+coin1].ask)
         coin2_per_coin1 = 1 / trade_order_book[coin2+coin1].bid
         coin1_per_coin2 = trade_order_book[coin2+coin1].ask
     else:
@@ -364,7 +352,6 @@ def calculate_coin_ratio(coin1, coin2):
 
 def convert_coins(coin1, coin2, quantity):
     global trade_order_book
-    # print('convert ' + coin1 + ' to ' + coin2 + ' quantity: ', quantity)
     if coin1+coin2 in [PAIR1, PAIR2, PAIR3]:
         # sell
         pair = coin1+coin2
@@ -386,7 +373,8 @@ def convert_coins(coin1, coin2, quantity):
             exception_logger.error('Sell Pair: ' + pair + ' Price: ' + str(price) + ' Adjusted Quantity: ' + str(adjusted_quantity))
             exception_logger.error(e)
             print('Exception placing order', e)
-            order = None
+            raise e
+            #order = None
     elif coin2+coin1 in [PAIR1, PAIR2, PAIR3]:
         # buy
         pair = coin2+coin1
@@ -410,7 +398,8 @@ def convert_coins(coin1, coin2, quantity):
             exception_logger.error('Buy Pair: ' + pair + ' Price: ' + str(price) + ' Adjusted Quantity: ' + str(adjusted_quantity))
             exception_logger.error(e)
             print('Exception placing order', e)
-            order = None
+            raise e
+            #order = None
     else:
         order = None
 
@@ -436,7 +425,7 @@ def print_order_status(pair1_order, pair2_order, pair3_order):
     print(status_string)
 
 
-def query_initial_coin_balances():
+def query_coin_balances():
     result = client.get_account()
     for asset in result['balances']:
         if asset['asset'] == COIN1:
@@ -447,6 +436,33 @@ def query_initial_coin_balances():
             balance_book[asset['asset']] += float(asset['free'])
         elif asset['asset'] == 'BNB':
             balance_book[asset['asset']] += float(asset['free'])
+    balance_book['timestamp'] = datetime.utcnow()
+
+
+def start_logging():
+    global log_start_time
+    global order_logger
+    global exception_logger
+
+    log_start_time = datetime.utcnow().date()
+
+    order_logger = logging.getLogger('order_tracker')
+    order_logger.setLevel(logging.DEBUG)
+    exception_logger = logging.getLogger('exception_tracker')
+    exception_logger.setLevel(logging.DEBUG)
+
+    order_log_file_handler = logging.FileHandler('logs\order_tracker_%s.log' % log_start_time.isoformat())
+    order_log_file_handler.setLevel(logging.INFO)
+    exception_log_file_handler = logging.FileHandler('logs\exception_tracker_%s.log' % log_start_time.isoformat())
+    exception_log_file_handler.setLevel(logging.INFO)
+
+    # remove and existing log handlers and replace them with the ones we just created
+    for handler in order_logger.handlers[:]:
+        order_logger.removeHandler(handler)
+    order_logger.addHandler(order_log_file_handler)
+    for handler in exception_logger.handlers[:]:
+        exception_logger.removeHandler(handler)
+    exception_logger.addHandler(exception_log_file_handler)
 
 
 def launch_socket_listeners():
@@ -461,6 +477,7 @@ def launch_socket_listeners():
     global bnbusdt_conn_key
     global account_conn_key
     global raw_order_book
+    global socket_start_time
 
     bm = BinanceSocketManager(client)
     # start any sockets here, i.e a trade socket
@@ -491,6 +508,8 @@ def launch_socket_listeners():
     account_conn_key = bm.start_user_socket(process_account_message)
     # then start the socket manager
     bm.start()
+    socket_start_time = datetime.utcnow()
+
     # wait till we have data for all pairs
     print('initialize order book')
     while raw_order_book['BNBETH'].bid == 0 or \
@@ -528,15 +547,15 @@ def shutdown_socket_listeners():
 
 def cancel_all_orders():
     global client
-    orders = client.get_all_orders(PAIR1)
+    orders = client.get_all_orders(symbol=PAIR1)
     for order in orders:
-        client.cancel_order(order['orderId'])
-    orders = client.get_all_orders(PAIR2)
+        client.cancel_order(symbol=PAIR1, orderId=order['orderId'])
+    orders = client.get_all_orders(symbol=PAIR2)
     for order in orders:
-        client.cancel_order(order['orderId'])
-    orders = client.get_all_orders(PAIR3)
+        client.cancel_order(symbol=PAIR2, orderId=order['orderId'])
+    orders = client.get_all_orders(symbol=PAIR3)
     for order in orders:
-        client.cancel_order(order['orderId'])
+        client.cancel_order(symbol=PAIR3, orderId=order['orderId'])
 
 
 def calculate_coin_delta(start_value, average_value, price):
@@ -624,12 +643,6 @@ def check_arbitrage():
     delta_coin1 = calculate_coin_delta(start_coin1_value, average_value, coin1_price)
     delta_coin2 = calculate_coin_delta(start_coin2_value, average_value, coin2_price)
     delta_coin3 = calculate_coin_delta(start_coin3_value, average_value, coin3_price)
-    # if abs(start_coin1_value - average_value) > 0.05 * average_value:
-    #     delta_coin1 = (average_value - start_coin1_value) / (2*coin1_price)
-    # if abs(start_coin2_value - average_value) > 0.05 * average_value:
-    #     delta_coin2 = (average_value - start_coin2_value) / (2*coin2_price)
-    # if abs(start_coin3_value - average_value) > 0.05 * average_value:
-    #     delta_coin3 = (average_value - start_coin3_value) / (2*coin3_price)
     print('average value: ', average_value)
     print(COIN1 + ' value: ', start_coin1_value)
     print(COIN2 + ' value: ', start_coin2_value)
@@ -669,6 +682,7 @@ def check_arbitrage():
     pair1_order = None
     found_order = True
 
+    order_timestamp = datetime.utcnow()
     if forward_arbitrage > reverse_arbitrage and forward_arbitrage > THRESHOLD:
         print('doing forward arbitrage')
         coin2_quantity, coin3_quantity, coin1_result = quick_calc(base_quantity,
@@ -684,13 +698,13 @@ def check_arbitrage():
 
         adjusted_coin1_quantity = base_quantity - delta_coin1
         adjusted_coin1_quantity += delta_coin2 * coin1_per_coin2
-        adjusted_coin1_quantity = min(start_coin1_balance, adjusted_coin1_quantity)
+        adjusted_coin1_quantity = min(0.95*start_coin1_balance, adjusted_coin1_quantity)
         adjusted_coin2_quantity = coin2_quantity - delta_coin2
         adjusted_coin2_quantity += delta_coin3 * coin2_per_coin3
-        adjusted_coin2_quantity = min(start_coin2_balance, adjusted_coin2_quantity)
+        adjusted_coin2_quantity = min(0.95*start_coin2_balance, adjusted_coin2_quantity)
         adjusted_coin3_quantity = coin3_quantity - delta_coin3
         adjusted_coin3_quantity += delta_coin1 * coin3_per_coin1
-        adjusted_coin3_quantity = min(start_coin3_balance, adjusted_coin3_quantity)
+        adjusted_coin3_quantity = min(0.95*start_coin3_balance, adjusted_coin3_quantity)
 
         print(COIN1 + ': ', base_quantity, adjusted_coin1_quantity)
         print(COIN2 + ': ', coin2_quantity, adjusted_coin2_quantity)
@@ -792,6 +806,18 @@ def check_arbitrage():
     end_coin3_balance = 0.0
     end_coin2_balance = 0.0
     end_bnb_balance = 0.0
+    if found_order and balance_book['timestamp'] < order_timestamp:
+        # the balance book hasn't been updated yet.  This is a minor problem
+        # if we had actual orders (it should be logged).
+        if (pair1_order is not None and pair1_order != EMPTY_ORDER) or \
+                (pair2_order is not None and pair2_order != EMPTY_ORDER) or \
+                (pair3_order is not None and pair3_order != EMPTY_ORDER):
+            exception_logger.warning('Time: ' + datetime.utcnow().isoformat())
+            exception_logger.warning('Warning: Balance book was not updated')
+            exception_logger.warning('Last updated at: ' + balance_book['timestamp'].isoformat())
+            exception_logger.warning('Order timestamp: ' + order_timestamp.isoformat())
+        query_coin_balances()
+
     for coin in balance_book:
         if coin == COIN1:
             end_coin1_balance = balance_book[coin]
@@ -887,20 +913,44 @@ def check_arbitrage():
     time.sleep(1.1)
 
 
+def check_sockets():
+    global socket_start_time
+
+    # restart all sockets if they've been up more than half a day
+    current_time = datetime.utcnow()
+    if current_time > socket_start_time + HALF_DAY:
+        shutdown_socket_listeners()
+        launch_socket_listeners()
+
+
+def check_logs():
+    global log_start_time
+
+    # restart all sockets if they've been up more than half a day
+    current_time = datetime.utcnow().date()
+    if current_time >= log_start_time + ONE_DAY:
+        # starting the loggers will close down the old ones.
+        start_logging()
+
+
 total_return = 0.0
 all_time_high = 0.0
+
 
 def main():
     global client
     global bm
 
-    query_initial_coin_balances()
+    start_logging()
+    query_coin_balances()
     launch_socket_listeners()
 
     exception_count = 0
     while True:
         try:
             check_arbitrage()
+            check_sockets()
+            check_logs()
             exception_count = 0
         except exceptions.BinanceAPIException as e:
             exception_logger.error('Time: ' + datetime.utcnow().isoformat())
@@ -928,6 +978,26 @@ def main():
                 shutdown_socket_listeners()
                 time.sleep(3)
                 launch_socket_listeners()
+            elif e.code == -2010:
+                # insufficient funds.  this should never happen if we have accurate
+                # values for our coin balances.  try restarting just about everything
+                exception_logger.error('Time: ' + datetime.utcnow().isoformat())
+                exception_logger.error('Exception placing an order, insufficient funds')
+                exception_logger.error(COIN1 + ' Funds: ' + str(balance_book[COIN1]) + ' '
+                                       + COIN2 + ' Funds: ' + str(balance_book[COIN2]) + ' '
+                                       + COIN3 + ' Funds: ' + str(balance_book[COIN3]))
+                exception_logger.error(e)
+                print('Exception placing order', e)
+                exception_count += 1
+                if exception_count >= 5:
+                    # too many exceptions are occurring so something must be wrong.  shutdown
+                    # everything.
+                    cancel_all_orders()
+                    raise e
+                cancel_all_orders()
+                shutdown_socket_listeners()
+                launch_socket_listeners()
+                query_coin_balances()
             else:
                 raise e
         except requests.exceptions.ReadTimeout as e:
@@ -943,7 +1013,7 @@ def main():
             time.sleep(3)
             client = Client(api_key, api_secret)
             bm = BinanceSocketManager(client)
-            query_initial_coin_balances()
+            query_coin_balances()
             launch_socket_listeners()
         except Exception as e:
             print('Exitting on exception: ', e)
