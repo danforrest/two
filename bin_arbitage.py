@@ -351,6 +351,8 @@ def calculate_coin_ratio(coin1, coin2):
 
 
 def convert_coins(coin1, coin2, quantity):
+    # look for min notional here
+    # TODO: Need min amount in addition to min notional
     global trade_order_book
     if coin1+coin2 in [PAIR1, PAIR2, PAIR3]:
         # sell
@@ -367,6 +369,10 @@ def convert_coins(coin1, coin2, quantity):
                                             price=price,
                                             quantity=round(adjusted_quantity, QUANTITY_PRECISION[pair]))
         except exceptions.BinanceAPIException as e:
+            if e.code == -1013:
+                print('Value under min notional')
+                print('Price: ', price, 'quantity: ', adjusted_quantity, 'min: ', MIN_NOTIONAL[pair])
+                return None
             exception_logger.error('Time: ' + datetime.utcnow().isoformat())
             exception_logger.error('Exception placing an order')
             exception_logger.error('Coin1: ' + coin1 + ' Coin2: ' + coin2 + ' Quantity: ' + str(quantity))
@@ -392,6 +398,10 @@ def convert_coins(coin1, coin2, quantity):
                                            price=price,
                                            quantity=round(adjusted_quantity, QUANTITY_PRECISION[pair]))
         except exceptions.BinanceAPIException as e:
+            if e.code == -1013:
+                print('Value under min notional')
+                print('Price: ', price, 'quantity: ', adjusted_quantity, 'min: ', MIN_NOTIONAL[pair])
+                return None
             exception_logger.error('Time: ' + datetime.utcnow().isoformat())
             exception_logger.error('Exception placing an order')
             exception_logger.error('Coin1: ' + coin1 + ' Coin2: ' + coin2 + ' Quantity: ' + str(quantity))
