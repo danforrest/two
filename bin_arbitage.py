@@ -9,6 +9,7 @@ import requests
 import traceback
 import gc
 import copy
+import json
 
 HALF_DAY = timedelta(hours=12)
 ONE_DAY = timedelta(days=1)
@@ -22,8 +23,8 @@ class OrderBook:
 
 
 class BinanceArbitrage:
-    api_key = 'RO0yfaBhlsb6rRZ3eAajt9Ptx347izGlfihXOskGhnk1NFcMVn4en7uTdtHAFfgD'
-    api_secret = 'suH3HixQOlGKCeV4vqA8eEhU1lFJgJQuexzZIomkJJ6JUwOnWk8ugLDdVq2XJBU7'
+    api_key = ''
+    api_secret = ''
 
     socket_start_time = None
     log_start_time = None
@@ -32,8 +33,8 @@ class BinanceArbitrage:
     order_logger = None
     transaction_logger = None
 
-    client = Client(api_key, api_secret)
-    bm = BinanceSocketManager(client)
+    client = None
+    bm = None
 
     bnbbtc_conn_key = None
     ethbtc_conn_key = None
@@ -92,12 +93,12 @@ class BinanceArbitrage:
                           'BTCUSDT': 6,
                           'ETHUSDT': 5}
     SPREAD_THRESHOLD = {'BNBBTC': 0.4,
-                        'ETHBTC': 0.95,
+                        'ETHBTC': 0.75,
                         'BNBETH': 0.4,
                         'NEOBTC': 0.5,
                         'NEOETH': 0.5,
-                        'BTCUSDT': 0.95,
-                        'ETHUSDT': 0.65}
+                        'BTCUSDT': 0.75,
+                        'ETHUSDT': 0.50}
     MIN_AMOUNT = {'BNBBTC': 1.0,
                   'ETHBTC': 0.001,
                   'BNBETH': 1.0,
@@ -114,7 +115,7 @@ class BinanceArbitrage:
                     'ETHUSDT': 20.0}
 
     FEE = 0.0005
-    THRESHOLD = 1.0021#16 # + (4 * FEE)
+    THRESHOLD = 1.0022#16 # + (4 * FEE)
     TOPOFF_THRESHOLD = 1.0015
     BNB_QUANTITY = 6.0
 
@@ -136,6 +137,16 @@ class BinanceArbitrage:
     total_return = 0.0
     all_time_high = 0.0
 
+    def __init__(self):
+        with open('api_keys.json') as api_file:
+            keys = json.load(api_file)
+            if 'binance' not in keys or 'api_secret' not in keys['binance'] or 'api_key' not in keys['binance']:
+                print('Invalid key file {}'.format('api_keys.json'))
+                exit(0)
+            self.api_key = keys['binance']['api_key']
+            self.api_secret = keys['binance']['api_secret']
+        self.client = Client(self.api_key, self.api_secret)
+        self.bm = BinanceSocketManager(self.client)
 
     # def process_bnbbtc_depth_message(self, msg):
     #     self.raw_order_book['BNBBTC'].bid = float(msg['bids'][0][0])
@@ -258,6 +269,7 @@ class BinanceArbitrage:
             else:
                 self.exception_logger.info('Time: ' + datetime.utcnow().isoformat())
                 self.exception_logger.info(traceback.format_exc())
+                time.sleep(3)
                 raise e
         if order['side'] == 'BUY':
             print('updating bid to: ', price, new_quantity)
@@ -282,6 +294,7 @@ class BinanceArbitrage:
             else:
                 self.exception_logger.error('Time: ' + datetime.utcnow().isoformat())
                 self.exception_logger.error(traceback.format_exc())
+                time.sleep(3)
                 raise e
 
 
@@ -517,6 +530,40 @@ class BinanceArbitrage:
         print(status_string)
 
 
+    # def print_order_status(self, pair_order):
+    #     status_string = 'Status:  '
+    #     pair1_order = None
+    #     pair2_order = None
+    #     pair3_order = None
+    #     for name, pair in pair_order:
+    #         if pair['symbol'] == self.PAIR1:
+    #             pair1_order = pair
+    #         if pair['symbol'] == self.PAIR2:
+    #             pair2_order = pair
+    #         if pair['symbol'] == self.PAIR3:
+    #             pair3_order = pair
+    #     if pair1_order is None or pair1_order['status'] == 'None':
+    #         status_string += '---  '
+    #     elif pair1_order['status'] == 'FILLED':
+    #         status_string += '100  '
+    #     else:
+    #         status_string += '{:3d}  '.format(int(100*float(pair1_order['executedQty'])/float(pair1_order['origQty'])))
+    #     if pair2_order is None or pair2_order['status'] == 'None':
+    #         status_string += '---  '
+    #     elif pair2_order['status'] == 'FILLED':
+    #         status_string += '100  '
+    #     else:
+    #         status_string += '{:3d}  '.format(int(100*float(pair2_order['executedQty'])/float(pair2_order['origQty'])))
+    #     if pair3_order is None or pair3_order['status'] == 'None':
+    #         status_string += '---  '
+    #     elif pair3_order['status'] == 'FILLED':
+    #         status_string += '100  '
+    #     else:
+    #         status_string += '{:3d}  '.format(int(100*float(pair3_order['executedQty'])/float(pair3_order['origQty'])))
+    #
+    #     print(status_string)
+
+
     def query_coin_balances(self):
         result = self.client.get_account()
         self.balance_book[self.COIN1] = {'free': 0.0, 'locked': 0.0}
@@ -639,6 +686,7 @@ class BinanceArbitrage:
                 # ignore unknown orders because it probably means the order was already
                 # filled.
                 if e.code != -2011:
+                    time.sleep(3)
                     raise e
         orders = self.client.get_open_orders(symbol=self.PAIR2)
         for order in orders:
@@ -649,6 +697,7 @@ class BinanceArbitrage:
                 # ignore unknown orders because it probably means the order was already
                 # filled.
                 if e.code != -2011:
+                    time.sleep(3)
                     raise e
         orders = self.client.get_open_orders(symbol=self.PAIR3)
         for order in orders:
@@ -659,6 +708,7 @@ class BinanceArbitrage:
                 # ignore unknown orders because it probably means the order was already
                 # filled.
                 if e.code != -2011:
+                    time.sleep(3)
                     raise e
 
 
@@ -707,6 +757,7 @@ class BinanceArbitrage:
                     self.exception_logger.error('Time: ' + datetime.utcnow().isoformat())
                     self.exception_logger.error('Exception logging transaction: ', str(transaction))
                     self.exception_logger.error(traceback.format_exc())
+                    time.sleep(3)
 
 
     def refill_bnb(self, start_balance, all_transactions):
@@ -748,6 +799,22 @@ class BinanceArbitrage:
         return pair1_executed, pair2_executed, pair3_executed
 
 
+    # def fill_percent(self, pair_order):
+    #     if pair_order[self.PAIR1] != self.EMPTY_ORDER:
+    #         pair1_executed = float(pair_order[self.PAIR1]['executedQty']) / float(pair_order[self.PAIR1]['origQty'])
+    #     else:
+    #         pair1_executed = 1.0
+    #     if pair_order[self.PAIR2] != self.EMPTY_ORDER:
+    #         pair2_executed = float(pair_order[self.PAIR2]['executedQty']) / float(pair_order[self.PAIR2]['origQty'])
+    #     else:
+    #         pair2_executed = 1.0
+    #     if pair_order[self.PAIR3] != self.EMPTY_ORDER:
+    #         pair3_executed = float(pair_order[self.PAIR3]['executedQty']) / float(pair_order[self.PAIR3]['origQty'])
+    #     else:
+    #         pair3_executed = 1.0
+    #     return pair1_executed, pair2_executed, pair3_executed
+
+
     def check_arbitrage(self):
         # calculate balance of each coin
         start_balance = {self.COIN1: 0.0, self.COIN2: 0.0, self.COIN3: 0.0, 'BNB': 0.0}
@@ -759,6 +826,9 @@ class BinanceArbitrage:
         coin_per_coin = {self.COIN1: {self.COIN2: 0.0, self.COIN3: 0.0},
                          self.COIN2: {self.COIN1: 0.0, self.COIN3: 0.0},
                          self.COIN3: {self.COIN1: 0.0, self.COIN2: 0.0}}
+        raw_coin_per_coin = {self.COIN1: {self.COIN2: 0.0, self.COIN3: 0.0},
+                             self.COIN2: {self.COIN1: 0.0, self.COIN3: 0.0},
+                             self.COIN3: {self.COIN1: 0.0, self.COIN2: 0.0}}
 
         all_transactions = []
         for coin in self.balance_book:
@@ -845,16 +915,24 @@ class BinanceArbitrage:
             start_coin = self.COIN1
             mid_coin = self.COIN3
             end_coin = self.COIN2
+            start_pair = self.PAIR1
+            mid_pair = self.PAIR3
+            end_pair = self.PAIR2
         else:
             direction = REVERSE
             gain = reverse_arbitrage
             start_coin = self.COIN1
             mid_coin = self.COIN2
             end_coin = self.COIN3
+            start_pair = self.PAIR2
+            mid_pair = self.PAIR3
+            end_pair = self.PAIR1
 
+        pair_order = {}
         pair1_order = self.EMPTY_ORDER
         pair2_order = self.EMPTY_ORDER
         pair3_order = self.EMPTY_ORDER
+        updated_order = {}
         updated_pair1_order = self.EMPTY_ORDER
         updated_pair2_order = self.EMPTY_ORDER
         updated_pair3_order = self.EMPTY_ORDER
@@ -863,29 +941,6 @@ class BinanceArbitrage:
         order_timestamp = datetime.utcnow()
         if direction == FORWARD and gain > self.THRESHOLD:
             print('doing forward arbitrage')
-            # base_quantity[self.COIN2], base_quantity[self.COIN3], coin1_result = self.quick_calc(base_quantity[self.COIN1],
-            #                                                                coin2_per_coin1,
-            #                                                                coin3_per_coin2,
-            #                                                                coin1_per_coin3)
-            #
-            # adjusted_quantity[self.COIN1] = base_quantity[self.COIN1] - delta[self.COIN1]
-            # adjusted_quantity[self.COIN1] += delta[self.COIN2] * coin1_per_coin2
-            # adjusted_quantity[self.COIN1] = min(0.95*start_balance[self.COIN1], adjusted_quantity[self.COIN1])
-            # adjusted_quantity[self.COIN2] = base_quantity[self.COIN2] - delta[self.COIN2]
-            # adjusted_quantity[self.COIN2] += delta[self.COIN3] * coin2_per_coin3
-            # adjusted_quantity[self.COIN2] = min(0.95*start_balance[self.COIN2], adjusted_quantity[self.COIN2])
-            # adjusted_quantity[self.COIN3] = base_quantity[self.COIN3] - delta[self.COIN3]
-            # adjusted_quantity[self.COIN3] += delta[self.COIN1] * coin3_per_coin1
-            # adjusted_quantity[self.COIN3] = min(0.95*start_balance[self.COIN3], adjusted_quantity[self.COIN3])
-
-            # if adjusted_quantity[self.COIN1] > 0:
-            #     pair2_order = self.convert_coins(self.COIN1, self.COIN2, adjusted_quantity[self.COIN1], original_order_book)
-            # if adjusted_quantity[self.COIN2] > 0:
-            #     pair3_order = self.convert_coins(self.COIN2, self.COIN3, adjusted_quantity[self.COIN2], original_order_book)
-            # if adjusted_quantity[self.COIN3] > 0:
-            #     pair1_order = self.convert_coins(self.COIN3, self.COIN1, adjusted_quantity[self.COIN3], original_order_book)
-            #
-            # bq = {start_coin: base_quantity[self.COIN1]}
             base_quantity[end_coin], base_quantity[mid_coin], c1_result = self.quick_calc(base_quantity[start_coin],
                                                                     coin_per_coin[end_coin][start_coin],
                                                                     coin_per_coin[mid_coin][end_coin],
@@ -908,34 +963,21 @@ class BinanceArbitrage:
             if adjusted_quantity[self.COIN3] > 0:
                 pair1_order = self.convert_coins(self.COIN3, self.COIN1, adjusted_quantity[self.COIN3], original_order_book)
 
+            # if adjusted_quantity[start_coin] > 0:
+            #     pair_order[start_pair] = self.convert_coins(start_coin, mid_coin, adjusted_quantity[start_coin],
+            #                                                   original_order_book)
+            # if adjusted_quantity[mid_coin] > 0:
+            #     pair_order[mid_pair] = self.convert_coins(mid_coin, end_coin, adjusted_quantity[mid_coin],
+            #                                                 original_order_book)
+            # if adjusted_quantity[end_coin] > 0:
+            #     pair_order[end_pair] = self.convert_coins(end_coin, start_coin, adjusted_quantity[end_coin],
+            #                                                 original_order_book)
+
             print(self.COIN1 + ': ', base_quantity[self.COIN1], adjusted_quantity[self.COIN1])
             print(self.COIN2 + ': ', base_quantity[self.COIN2], adjusted_quantity[self.COIN2])
             print(self.COIN3 + ': ', base_quantity[self.COIN3], adjusted_quantity[self.COIN3])
         elif direction == REVERSE and gain > self.THRESHOLD:
             print('doing reverse arbitrage')
-            # base_quantity[self.COIN3], base_quantity[self.COIN2], coin1_result = self.quick_calc(base_quantity[self.COIN1],
-            #                                                                coin3_per_coin1,
-            #                                                                coin2_per_coin3,
-            #                                                                coin1_per_coin2)
-            #
-            # adjusted_quantity[self.COIN1] = base_quantity[self.COIN1] - delta[self.COIN1]
-            # adjusted_quantity[self.COIN1] += delta[self.COIN3] * coin1_per_coin3
-            # adjusted_quantity[self.COIN1] = min(0.95*start_balance[self.COIN1], adjusted_quantity[self.COIN1])
-            # adjusted_quantity[self.COIN2] = base_quantity[self.COIN2] - delta[self.COIN2]
-            # adjusted_quantity[self.COIN2] += delta[self.COIN1] * coin2_per_coin1
-            # adjusted_quantity[self.COIN2] = min(0.95*start_balance[self.COIN2], adjusted_quantity[self.COIN2])
-            # adjusted_quantity[self.COIN3] = base_quantity[self.COIN3] - delta[self.COIN3]
-            # adjusted_quantity[self.COIN3] += delta[self.COIN2] * coin3_per_coin2
-            # adjusted_quantity[self.COIN3] = min(0.95*start_balance[self.COIN3], adjusted_quantity[self.COIN3])
-
-            # if adjusted_quantity[self.COIN1] > 0:
-            #     pair1_order = self.convert_coins(self.COIN1, self.COIN3, adjusted_quantity[self.COIN1], original_order_book)
-            # if adjusted_quantity[self.COIN3] > 0:
-            #     pair3_order = self.convert_coins(self.COIN3, self.COIN2, adjusted_quantity[self.COIN3], original_order_book)
-            # if adjusted_quantity[self.COIN2] > 0:
-            #     pair2_order = self.convert_coins(self.COIN2, self.COIN1, adjusted_quantity[self.COIN2], original_order_book)
-            #
-            # bq = {start_coin: base_quantity[self.COIN1]}
             base_quantity[end_coin], base_quantity[mid_coin], c1_result = self.quick_calc(base_quantity[start_coin],
                                                                     coin_per_coin[end_coin][start_coin],
                                                                     coin_per_coin[mid_coin][end_coin],
@@ -958,6 +1000,16 @@ class BinanceArbitrage:
             if adjusted_quantity[self.COIN2] > 0:
                 pair2_order = self.convert_coins(self.COIN2, self.COIN1, adjusted_quantity[self.COIN2], original_order_book)
 
+            # if adjusted_quantity[start_coin] > 0:
+            #     pair_order[start_pair] = self.convert_coins(start_coin, mid_coin, adjusted_quantity[start_coin],
+            #                                                   original_order_book)
+            # if adjusted_quantity[mid_coin] > 0:
+            #     pair_order[mid_pair] = self.convert_coins(mid_coin, end_coin, adjusted_quantity[mid_coin],
+            #                                                 original_order_book)
+            # if adjusted_quantity[end_coin] > 0:
+            #     pair_order[end_pair] = self.convert_coins(end_coin, start_coin, adjusted_quantity[end_coin],
+            #                                                 original_order_book)
+
             print(self.COIN1 + ': ', base_quantity[self.COIN1], adjusted_quantity[self.COIN1])
             print(self.COIN2 + ': ', base_quantity[self.COIN2], adjusted_quantity[self.COIN2])
             print(self.COIN3 + ': ', base_quantity[self.COIN3], adjusted_quantity[self.COIN3])
@@ -974,15 +1026,23 @@ class BinanceArbitrage:
                 pair2_order = self.EMPTY_ORDER
             if pair3_order is None:
                 pair3_order = self.EMPTY_ORDER
+            # for pair_name, pair in pair_order:
+            #     if pair is None:
+            #         pair_order[pair_name] = self.EMPTY_ORDER
             if direction == FORWARD:
                 print(self.COIN3 + '->' + self.COIN1, self.COIN1 + '->' + self.COIN2, self.COIN2 + '->' + self.COIN3)
             else:
                 print(self.COIN1 + '->' + self.COIN3, self.COIN2 + '->' + self.COIN1, self.COIN3 + '->' + self.COIN2)
+            # while (pair_order[start_pair]['status'] not in ['FILLED', 'None']
+            #        or pair_order[mid_pair]['status'] not in ['FILLED', 'None']
+            #        or pair_order[end_pair]['status'] not in ['FILLED', 'None']) \
+            #         and start_time + 45 > time.time():
             while (pair1_order['status'] not in ['FILLED', 'None']
                    or pair2_order['status'] not in ['FILLED', 'None']
                    or pair3_order['status'] not in ['FILLED', 'None'])\
                   and start_time + 45 > time.time():
                 self.print_order_status(pair1_order, pair2_order, pair3_order)
+                # self.print_order_status(pair_order)
                 check_count += 1
                 time.sleep(3)
                 if pair1_order != self.EMPTY_ORDER and pair1_order['status'] != 'FILLED':
@@ -995,6 +1055,7 @@ class BinanceArbitrage:
                             self.exception_logger.warning('Time: ' + datetime.utcnow().isoformat())
                             self.exception_logger.warning('Error: ' + self.PAIR1 + ' Order doesnt exist')
                             self.exception_logger.warning('Original: ' + str(pair1_order))
+                        time.sleep(1)
                         raise e
                     if check_count % 4 == 0 and pair1_order['status'] != 'FILLED':
                         pass
@@ -1010,6 +1071,7 @@ class BinanceArbitrage:
                             self.exception_logger.warning('Time: ' + datetime.utcnow().isoformat())
                             self.exception_logger.warning('Error: ' + self.PAIR2 + ' Order doesnt exist')
                             self.exception_logger.warning('Original: ' + str(pair2_order))
+                        time.sleep(1)
                         raise e
                     # if check_count % 4 == 0 and pair2_order['status'] != 'FILLED':
                     #     # reset the price
@@ -1024,11 +1086,29 @@ class BinanceArbitrage:
                             self.exception_logger.warning('Time: ' + datetime.utcnow().isoformat())
                             self.exception_logger.warning('Error: ' + self.PAIR3 + ' Order doesnt exist')
                             self.exception_logger.warning('Original: ' + str(pair3_order))
+                        time.sleep(1)
                         raise e
                     # if check_count % 4 == 0 and pair3_order['status'] != 'FILLED':
                     #     # reset the price
                     #     pair3_order = update_order(pair3_order, base_quantity[self.COIN1], check_count / 4)
+                # for name, pair in pair_order:
+                #     if pair != self.EMPTY_ORDER and pair['status'] != 'FILLED':
+                #         try:
+                #             pair_order[name] = self.client.get_order(symbol=pair['symbol'],
+                #                                                      orderId=pair['orderId'],
+                #                                                      origClientOrderId=pair['clientOrderId'])
+                #         except exceptions.BinanceAPIException as e:
+                #             if e.code == -2013:
+                #                 self.exception_logger.warning('Time: ' + datetime.utcnow().isoformat())
+                #                 self.exception_logger.warning('Error: ' + pair['symbol'] + ' Order doesnt exist')
+                #                 self.exception_logger.warning('Original: ' + str(pair))
+                #             raise e
+                #         if check_count % 4 == 0 and pair['status'] != 'FILLED':
+                #             pass
+                #             # reset the price
+                #             # pair1_order = update_order(pair1_order, base_quantity[self.COIN1], check_count / 4)
                 pair1_executed, pair2_executed, pair3_executed = self.fill_percent(pair1_order, pair2_order, pair3_order)
+                # pair1_executed, pair2_executed, pair3_executed = self.fill_percent(pair_order)
                 if min(pair1_executed, pair2_executed, pair3_executed) > 0.98:
                     break
 
@@ -1056,19 +1136,35 @@ class BinanceArbitrage:
                                                     origClientOrderId=pair3_order['clientOrderId'])
                 if pair3_order['status'] == 'CANCELED':
                     pair3_order['memo'] = 'TIMEDOUT'
+            # for name, pair in pair_order:
+            #     print('cancel ' + pair['symbol'])
+            #     self.cancel_order(pair)
+            #     pair_order[name] = self.client.get_order(symbol=pair['symbol'],
+            #                                              orderId=pair['orderId'],
+            #                                              origClientOrderId=pair['clientOrderId'])
+            #     if pair[name]['status'] == 'CANCELED':
+            #         pair[name]['memo'] = 'TIMEOUT'
+
             # give the system 1 second for balances to be updated
             all_transactions.append(pair1_order)
             all_transactions.append(pair2_order)
             all_transactions.append(pair3_order)
+            # for pair in pair_order:
+            #     all_transactions.append(pair)
 
             # see if a market order would still be profitable
             pair1_executed, pair2_executed, pair3_executed = self.fill_percent(pair1_order, pair2_order, pair3_order)
             print(self.PAIR1, pair1_executed, self.PAIR2, pair2_executed, self.PAIR3, pair3_executed)
             total_executed = pair1_executed + pair2_executed + pair3_executed
+            # executed = {self.PAIR1: 0.0, self.PAIR2: 0.0, self.PAIR3: 0.0}
+            # executed[self.PAIR1], executed[self.PAIR2], executed[self.PAIR3] = self.fill_percent(pair_order)
+            # print(self.PAIR1, executed[self.PAIR1], self.PAIR2, executed[self.PAIR2], self.PAIR3, executed[self.PAIR3])
+            # total_executed = executed[self.PAIR1] + executed[self.PAIR2] + executed[self.PAIR3]
 
             pair1_top_off = False
             pair2_top_off = False
             pair3_top_off = False
+            # top_off{start_pair: False, mid_pair: False, end_pair: False}
             if pair1_executed < 0.85 and total_executed > 1.5:
                 try:
                     raw_coin1_per_coin3, raw_coin3_per_coin1 = self.calculate_raw_coin_ratio(self.COIN1, self.COIN3)
@@ -1097,6 +1193,7 @@ class BinanceArbitrage:
                             pair1_top_off = True
                 except Exception as e:
                     print(traceback.format_exc())
+                    time.sleep(3)
             if pair2_executed < 0.85 and total_executed > 1.5:
                 try:
                     raw_coin1_per_coin2, raw_coin2_per_coin1 = self.calculate_raw_coin_ratio(self.COIN1, self.COIN2)
@@ -1125,6 +1222,7 @@ class BinanceArbitrage:
                             pair2_top_off = True
                 except Exception as e:
                     print(traceback.format_exc())
+                    time.sleep(3)
             if pair3_executed < 0.85 and total_executed > 1.5:
                 try:
                     raw_coin2_per_coin3, raw_coin3_per_coin2 = self.calculate_raw_coin_ratio(self.COIN2, self.COIN3)
@@ -1153,6 +1251,37 @@ class BinanceArbitrage:
                             pair3_top_off = True
                 except Exception as e:
                     print(traceback.format_exc())
+                    time.sleep(3)
+            # for name, pair in pair_order:
+            #     if executed[name] < 0.85 and total_executed > 1.5:
+            #         try:
+            #             if name == start_pair:
+            #                 first_coin = start_coin
+            #                 second_coin = mid_coin
+            #                 new_arbitrage = coin_per_coin[mid_coin][end_coin] * coin_per_coin[end_coin][start_coin]
+            #             elif name == mid_pair:
+            #                 first_coin = mid_coin
+            #                 second_coin = end_coin
+            #                 new_arbitrage = coin_per_coin[start_coin][mid_coin] * coin_per_coin[end_coin][start_coin]
+            #             elif name == end_pair:
+            #                 first_coin = end_coin
+            #                 second_coin = start_coin
+            #                 new_arbitrage = coin_per_coin[start_coin][mid_coin] * coin_per_coin[mid_coin][end_coin]
+            #
+            #             updated_coin_per_coin, temp = self.calculate_raw_coin_ratio(first_coin, second_coin)
+            #             new_arbitrage *= updated_coin_per_coin
+            #
+            #             print('new', name, ' arb: ', '%.3f' % ((new_arbitrage - 1.0) * 100))
+            #             if new_arbitrage > self.TOPOFF_THRESHOLD:
+            #                 print("******Topoff opportunity for", name, '*****')
+            #                 new_quantity = adjusted_quantity[first_coin] * (1 - executed[name])
+            #                 updated_order[name] = self.market_convert_coins(first_coin, second_coin, new_quantity)
+            #                 updated_order[name]['memo'] = 'TOPOFF'
+            #                 all_transactions.append(updated_order[name])
+            #                 top_off[name] = True
+            #
+            #         except Exception as e:
+            #             print(traceback.format_exc())
 
         order_end_time = datetime.utcnow()
 
@@ -1165,6 +1294,9 @@ class BinanceArbitrage:
         if found_order and (self.balance_book['timestamp'] < order_timestamp or self.balance_book['locked']):
             # the balance book hasn't been updated yet.  This is a minor problem
             # if we had actual orders (it should be logged).
+            # if (pair_order[start_pair] is not None and pair_order[start_pair] != self.EMPTY_ORDER) or \
+            #         (pair_order[mid_pair] is not None and pair_order[mid_pair] != self.EMPTY_ORDER) or \
+            #         (pair_order[end_pair] is not None and pair_order[end_pair] != self.EMPTY_ORDER):
             if (pair1_order is not None and pair1_order != self.EMPTY_ORDER) or \
                     (pair2_order is not None and pair2_order != self.EMPTY_ORDER) or \
                     (pair3_order is not None and pair3_order != self.EMPTY_ORDER):
@@ -1183,7 +1315,7 @@ class BinanceArbitrage:
                         # wait till all assets are freed.  sometimes binance can be slow.
                         self.exception_logger.warning('Time: ' + datetime.utcnow().isoformat())
                         self.exception_logger.warning('Warning: Assets still locked')
-                        self.exception_logger.warning('Coin: ' + coin + ' Amount: ' + self.balance_book[coin]['locked'])
+                        self.exception_logger.warning('Coin: ' + coin + ' Amount: ' + str(self.balance_book[coin]['locked']))
                         assets_locked = True
                         time.sleep(5.0)
                         continue
@@ -1211,6 +1343,15 @@ class BinanceArbitrage:
             pair2_filled /= float(pair2_order['origQty'])
         if pair3_order != self.EMPTY_ORDER:
             pair3_filled /= float(pair3_order['origQty'])
+        # pair1_filled = float(pair_order[self.PAIR1]['executedQty']) + float(updated_order[self.PAIR1]['executedQty'])
+        # pair2_filled = float(pair_order[self.PAIR2]['executedQty']) + float(updated_order[self.PAIR2]['executedQty'])
+        # pair3_filled = float(pair_order[self.PAIR3]['executedQty']) + float(updated_order[self.PAIR3]['executedQty'])
+        # if pair_order[self.PAIR1] != self.EMPTY_ORDER:
+        #     pair1_filled /= float(pair_order[self.PAIR1]['origQty'])
+        # if pair_order[self.PAIR2] != self.EMPTY_ORDER:
+        #     pair2_filled /= float(pair_order[self.PAIR2]['origQty'])
+        # if pair_order[self.PAIR3] != self.EMPTY_ORDER:
+        #     pair3_filled /= float(pair_order[self.PAIR3]['origQty'])
 
         start_total_value = start_value[self.COIN1]+start_value[self.COIN2]+start_value[self.COIN3]+start_value['BNB']
         end_total_value = end_coin1_value+end_coin2_value+end_coin3_value+end_bnb_value
@@ -1226,13 +1367,6 @@ class BinanceArbitrage:
         end_total_coin1_balance = end_coin1_balance + (end_coin2_balance * coin_per_coin[self.COIN1][self.COIN2]) + (end_coin3_balance * coin_per_coin[self.COIN1][self.COIN3])
         end_total_coin2_balance = (end_coin1_balance * coin_per_coin[self.COIN2][self.COIN1]) + end_coin2_balance + (end_coin3_balance * coin_per_coin[self.COIN2][self.COIN3])
         end_total_coin3_balance = (end_coin1_balance * coin_per_coin[self.COIN3][self.COIN1]) + (end_coin2_balance * coin_per_coin[self.COIN3][self.COIN2]) + end_coin3_balance
-
-        # start_total_coin1_balance = start_balance[self.COIN1] + (start_balance[self.COIN2] * coin1_per_coin2) + (start_balance[self.COIN3] * coin1_per_coin3)
-        # start_total_coin2_balance = (start_balance[self.COIN1] * coin2_per_coin1) + start_balance[self.COIN2] + (start_balance[self.COIN3] * coin2_per_coin3)
-        # start_total_coin3_balance = (start_balance[self.COIN1] * coin3_per_coin1) + (start_balance[self.COIN2] * coin3_per_coin2) + start_balance[self.COIN3]
-        # end_total_coin1_balance = end_coin1_balance + (end_coin2_balance * coin1_per_coin2) + (end_coin3_balance * coin1_per_coin3)
-        # end_total_coin2_balance = (end_coin1_balance * coin2_per_coin1) + end_coin2_balance + (end_coin3_balance * coin2_per_coin3)
-        # end_total_coin3_balance = (end_coin1_balance * coin3_per_coin1) + (end_coin2_balance * coin3_per_coin2) + end_coin3_balance
 
         if found_order:
             print(self.COIN1 + ' ending diff:', end_coin1_balance - start_balance[self.COIN1])
@@ -1251,6 +1385,7 @@ class BinanceArbitrage:
                         forward_arbitrage, reverse_arbitrage,
                         adjusted_quantity[self.COIN1], adjusted_quantity[self.COIN2], adjusted_quantity[self.COIN3],
                         pair1_order['status']=='FILLED', pair2_order['status']=='FILLED', pair3_order['status']=='FILLED',
+                        # pair_order[self.PAIR1]['status']=='FILLED', pair_order[self.PAIR2]['status']=='FILLED', pair_order[self.PAIR3]['status']=='FILLED',
                         start_balance[self.COIN1], end_coin1_balance, start_value[self.COIN1], end_coin1_value,
                         start_balance[self.COIN2], end_coin2_balance, start_value[self.COIN2], end_coin2_value,
                         start_balance[self.COIN3], end_coin3_balance, start_value[self.COIN3], end_coin3_value,
@@ -1262,6 +1397,7 @@ class BinanceArbitrage:
                         start_total_coin3_balance, end_total_coin3_balance,
                         pair1_filled, pair2_filled, pair3_filled,
                         pair1_top_off, pair2_top_off, pair3_top_off]
+                        # top_off[self.PAIR1], top_off[self.PAIR2], top_off[self.PAIR3]]
             log_string = ','.join(str(x) for x in log_list)
             print('log line: ', log_string)
             self.order_logger.info(log_string)
@@ -1288,7 +1424,8 @@ class BinanceArbitrage:
             # pause a short bit so we can read the results
             # long term, this can be removed
             time.sleep(1)
-        time.sleep(1.1)
+        gc.collect()
+        time.sleep(1.0)
 
 
     def check_sockets(self):
@@ -1309,8 +1446,8 @@ class BinanceArbitrage:
 
 
     def run_arbitrage(self):
-        global client
-        global bm
+        #global client
+        #global bm
 
         self.start_logging()
         self.cancel_all_orders()
@@ -1371,9 +1508,11 @@ class BinanceArbitrage:
                     #     raise e
                     self.cancel_all_orders()
                     self.shutdown_socket_listeners()
+                    time.sleep(3)
                     self.launch_socket_listeners()
                     self.query_coin_balances()
                 else:
+                    time.sleep(3)
                     raise e
             except requests.exceptions.ReadTimeout as e:
                 self.exception_logger.error('Time: ' + datetime.utcnow().isoformat())
@@ -1413,10 +1552,12 @@ if __name__ == "__main__":
             binance_arbitrage = BinanceArbitrage()
             binance_arbitrage.run_arbitrage()
         except Exception as e:
-            print('Failure at the top level', e)
+            print('Failure at the top level', str(e))
+            traceback.print_exc()
             exception_time = datetime.utcnow()
             if exception_time - start_time < timedelta(minutes=30):
                 if exception_count > 3:
+                    time.sleep(3)
                     raise e
                 else:
                     exception_count += 1
