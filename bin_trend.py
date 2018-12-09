@@ -225,7 +225,7 @@ class BinanceTrend:
 
 
     def log_trade(self, trade):
-        trade['exchange'] = 'binance'
+        trade['exchange_name'] = 'binance'
         trade_json = json.dumps(trade)
         self.trade_logger.info(trade_json)
 
@@ -290,8 +290,8 @@ class BinanceTrend:
         total_quantity = 0.0
         weighted_price = 0.0
         for trade in order['fills']:
-            weighted_price += trade['price'] * trade['qty']
-            total_quantity += trade['qty']
+            weighted_price += float(trade['price']) * float(trade['qty'])
+            total_quantity += float(trade['qty'])
         return weighted_price / total_quantity
 
 
@@ -410,7 +410,10 @@ class BinanceTrend:
             trade[order_type]['fills'] = self.find_trade_for_order(trade[order_type])
             print('{} fills: {}'.format(order_type, trade[order_type]['fills']))
         for fill in trade[order_type]['fills']:
-            trade['fee'][fill['commissionAsset']] = fill['commission']
+            if fill['commissionAsset'] in trade['fee']:
+                trade['fee'][fill['commissionAsset']] += float(fill['commission'])
+            else:
+                trade['fee'][fill['commissionAsset']] = float(fill['commission'])
 
 
     def check_trend(self):
@@ -583,7 +586,7 @@ class BinanceTrend:
         trade['stop_loss_order'] = stop_order
 
         # log actual price of purchase
-        trade['price_in'] = entry_order['price']  # TODO: verify that price is weighted by quantity at each price
+        trade['price_in'] = float(entry_order['price'])
 
         # calculate entry fees
         self.update_fees(trade, 'entry_order')
