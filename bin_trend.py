@@ -527,6 +527,8 @@ class BinanceTrend:
         max_retracement = abs(price_in - stop_loss)
         position_size = max_risk / max_retracement
 
+        self.query_coin_balances()
+
         if direction == PatternAction.GO_LONG:
             current_balance = self.balance_book['USDT']['free']
             if position_size * price_in < 0.9 * current_balance:
@@ -561,7 +563,9 @@ class BinanceTrend:
                  'price_in_target': price_in,
                  'position_size': round(position_size, self.QUANTITY_PRECISION[self.PAIR1]),
                  'risk': actual_risk,
-                 'fee': {}}
+                 'fee': {},
+                 'balance_in': {'BTC': self.balance_book['BTC']['free'],
+                                'USDT': self.balance_book['USDT']['free']}}
         log_template = '{direction} price in: {price_in} max retrace: {retrace} size: {position} risk: {risk}'
         print(log_template.format(direction=direction,
                                   price_in=price_in,
@@ -633,7 +637,9 @@ class BinanceTrend:
 
         trade['R'] = trade['profit'] / trade['risk']
         trade['time_out'] = datetime.utcnow().isoformat()
-
+        self.query_coin_balances()
+        trade['balance_out'] = {'BTC': self.balance_book['BTC']['free'],
+                                'USDT': self.balance_book['USDT']['free']}
         log_template = '{direction} {price_in} {price_out} profit: {profit} risk: {risk} reward: {reward}'
         print(log_template.format(direction=trade['direction'],
                                   price_in=trade['price_in'],
