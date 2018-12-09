@@ -114,10 +114,11 @@ class BinanceArbitrage:
                     'BTCUSDT': 1.0,
                     'ETHUSDT': 20.0}
 
-    FEE = 0.0005
-    THRESHOLD = 1.0022#16 # + (4 * FEE)
-    TOPOFF_THRESHOLD = 1.0015
-    BNB_QUANTITY = 6.0
+    FEE = 0.00075
+    BUFFER = 0.0005
+    THRESHOLD = 1 + (3*FEE) + BUFFER #1.00275
+    TOPOFF_THRESHOLD = 1 + (3 * FEE) #1.00225
+    BNB_QUANTITY = 10.0
 
     raw_order_book_timestamp = None
     raw_order_book = {'ETHBTC': OrderBook(),
@@ -775,7 +776,9 @@ class BinanceArbitrage:
             # print(coin + ' value: ', start_value[coin])
 
         if start_value['BNB'] < 0.001 * (start_value[self.COIN1]+start_value[self.COIN2]+start_value[self.COIN3]):
-            order = self.client.order_market_buy(symbol='BNBUSDT', quantity=2.00, newOrderRespType='FULL')
+            order = self.client.order_market_buy(symbol='BNBUSDT',
+                                                 quantity=self.BNB_QUANTITY,
+                                                 newOrderRespType='FULL')
             while 'status' not in order or order['status'] != 'FILLED':
                 time.sleep(0.5)
                 order = self.client.get_order(symbol='BNBUSDT', orderId=order['orderId'])

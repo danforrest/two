@@ -12,6 +12,7 @@ ONE_DAY = timedelta(days=1)
 FORWARD = 1
 REVERSE = 0
 
+BNB = 'BNB'
 BTC = 'BTC'
 ETH = 'ETH'
 NEO = 'NEO'
@@ -62,13 +63,29 @@ class CoinBalance:
 
 
 class Order:
+    FILLED = 'FILLED'
+    CANCELED = 'CANCELED'
+    PENDING = 'PENDING'
+    NONE = 'NONE'
+
+    timestamp_placed = 0
+    timestamp_cleared = 0
+    timestamp = 0
     id = ''
+    alt_id = ''
     exchange = None
     direction = ''
     pair = None
+    reserve_coin = None
     type = ''
     price = 0.0
     quantity = 0.0
+    executed_quantity = 0.0
+    fee = {}
+    status = NONE
+    memo = 'NO_MEMO'
+    sub_orders = []
+    raw_order = None
 
 
 
@@ -148,6 +165,8 @@ class Exchange:
         self.balance_book['timestamp'] = None
         self.balance_book['locked'] = False
 
+        self.start_logging()
+
     total_return = 0.0
     all_time_high = 0.0
 
@@ -191,31 +210,6 @@ class Exchange:
         raise NotImplementedError('Exchange.update_order is abstract and must be implemented')
 
 
-    @staticmethod
-    def print_order_status(pair1_order, pair2_order, pair3_order):
-        status_string = 'Status:  '
-        if pair1_order is None or pair1_order['status'] == 'None':
-            status_string += '---  '
-        elif pair1_order['status'] == 'FILLED':
-            status_string += '100  '
-        else:
-            status_string += '{:3d}  '.format(int(100*float(pair1_order['executedQty'])/float(pair1_order['origQty'])))
-        if pair2_order is None or pair2_order['status'] == 'None':
-            status_string += '---  '
-        elif pair2_order['status'] == 'FILLED':
-            status_string += '100  '
-        else:
-            status_string += '{:3d}  '.format(int(100*float(pair2_order['executedQty'])/float(pair2_order['origQty'])))
-        if pair3_order is None or pair3_order['status'] == 'None':
-            status_string += '---  '
-        elif pair3_order['status'] == 'FILLED':
-            status_string += '100  '
-        else:
-            status_string += '{:3d}  '.format(int(100*float(pair3_order['executedQty'])/float(pair3_order['origQty'])))
-
-        print(status_string)
-
-
     def query_coin_balances(self):
         raise NotImplementedError('Exchange.market_convert_coins is abstract and must be implemented')
 
@@ -225,32 +219,32 @@ class Exchange:
 
         # self.order_logger = logging.getLogger('order_tracker')
         # self.order_logger.setLevel(logging.DEBUG)
-        # self.exception_logger = logging.getLogger('exception_tracker')
-        # self.exception_logger.setLevel(logging.DEBUG)
-        # self.transaction_logger = logging.getLogger('transaction_tracker')
-        # self.transaction_logger.setLevel(logging.DEBUG)
-        #
-        # base = 'logs\\'
+        self.exception_logger = logging.getLogger('exception_tracker')
+        self.exception_logger.setLevel(logging.DEBUG)
+        self.transaction_logger = logging.getLogger('transaction_tracker')
+        self.transaction_logger.setLevel(logging.DEBUG)
+
+        base = 'logs\\'
         # order_log_file_name = '%sbinance_orders_%s.log' % (base, self.log_start_time.isoformat())
-        # exception_log_file_name = '%sbinance_exceptions_%s.log' % (base, self.log_start_time.isoformat())
-        # transaction_log_file_name = '%sbinance_transactions_%s.log' % (base, self.log_start_time.isoformat())
+        exception_log_file_name = '%smulti_exchange_exceptions_%s.log' % (base, self.log_start_time.isoformat())
+        transaction_log_file_name = '%smulti_exchange_transactions_%s.log' % (base, self.log_start_time.isoformat())
         # order_log_file_handler = logging.FileHandler(order_log_file_name)
         # order_log_file_handler.setLevel(logging.INFO)
-        # exception_log_file_handler = logging.FileHandler(exception_log_file_name)
-        # exception_log_file_handler.setLevel(logging.INFO)
-        # transaction_log_file_handler = logging.FileHandler(transaction_log_file_name)
-        # transaction_log_file_handler.setLevel(logging.INFO)
-        #
-        # # remove and existing log handlers and replace them with the ones we just created
+        exception_log_file_handler = logging.FileHandler(exception_log_file_name)
+        exception_log_file_handler.setLevel(logging.INFO)
+        transaction_log_file_handler = logging.FileHandler(transaction_log_file_name)
+        transaction_log_file_handler.setLevel(logging.INFO)
+
+        # remove and existing log handlers and replace them with the ones we just created
         # for handler in self.order_logger.handlers[:]:
         #     self.order_logger.removeHandler(handler)
         # self.order_logger.addHandler(order_log_file_handler)
-        # for handler in self.exception_logger.handlers[:]:
-        #     self.exception_logger.removeHandler(handler)
-        # self.exception_logger.addHandler(exception_log_file_handler)
-        # for handler in self.transaction_logger.handlers[:]:
-        #     self.transaction_logger.removeHandler(handler)
-        # self.transaction_logger.addHandler(transaction_log_file_handler)
+        for handler in self.exception_logger.handlers[:]:
+            self.exception_logger.removeHandler(handler)
+        self.exception_logger.addHandler(exception_log_file_handler)
+        for handler in self.transaction_logger.handlers[:]:
+            self.transaction_logger.removeHandler(handler)
+        self.transaction_logger.addHandler(transaction_log_file_handler)
 
 
     def cancel_all_orders(self):
@@ -263,62 +257,6 @@ class Exchange:
             return (average_value - start_value) / (2 * price)
         else:
             return 0.0
-
-
-    def update_transaction_log(self, transaction_list):
-        for transaction in transaction_list:
-            if transaction is not None and transaction['status'] is not 'None':
-                try:
-                    # uncomment this if the empty transactions become a problem
-                    # if float(transaction['executedQty']) == 0.0:
-                    #     continue
-                    #
-                    if 'time' in transaction:
-                        transaction_time = transaction['time']
-                    else:
-                        transaction_time = transaction['transactTime']
-                    if 'fills' not in transaction:
-                        transaction['fills'] = [{'price': transaction['price'],
-                                                 'qty': transaction['executedQty'],
-                                                 'commission': self.FEE*float(transaction['executedQty']),
-                                                 'tradeId': 0
-                                                 }]
-                    if 'memo' not in transaction:
-                        transaction['memo'] = 'NO_MEMO'
-
-                    for sub_transaction in transaction['fills']:
-                        commission = '%.8f' % (float(sub_transaction['commission'])*float(sub_transaction['price']))
-                        log_list = ['binance', 'v1.0', datetime.utcfromtimestamp(transaction_time/1000.0).isoformat(),
-                                    transaction['symbol'],
-                                    float(sub_transaction['price']), float(sub_transaction['qty']),
-                                    float(transaction['origQty']), float(transaction['executedQty']),
-                                    (float(transaction['executedQty'])/float(transaction['origQty'])),
-                                    transaction['status'], transaction['side'], commission, transaction['memo'],
-                                    transaction['orderId'], transaction['clientOrderId'], sub_transaction['tradeId']]
-                        log_string = ','.join(str(x) for x in log_list)
-                        print('log line: ', log_string)
-                        self.transaction_logger.info(log_string)
-                except Exception as e:
-                    self.exception_logger.error('Time: ' + datetime.utcnow().isoformat())
-                    self.exception_logger.error('Exception logging transaction: ', str(transaction))
-                    self.exception_logger.error(traceback.format_exc())
-                    time.sleep(3)
-
-
-    def fill_percent(self, pair1_order, pair2_order, pair3_order):
-        if pair1_order != self.EMPTY_ORDER:
-            pair1_executed = float(pair1_order['executedQty']) / float(pair1_order['origQty'])
-        else:
-            pair1_executed = 1.0
-        if pair2_order != self.EMPTY_ORDER:
-            pair2_executed = float(pair2_order['executedQty']) / float(pair2_order['origQty'])
-        else:
-            pair2_executed = 1.0
-        if pair3_order != self.EMPTY_ORDER:
-            pair3_executed = float(pair3_order['executedQty']) / float(pair3_order['origQty'])
-        else:
-            pair3_executed = 1.0
-        return pair1_executed, pair2_executed, pair3_executed
 
 
     def check_logs(self):
