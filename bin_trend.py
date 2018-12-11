@@ -1,5 +1,6 @@
 from binance.client import Client
 from binance.websockets import BinanceSocketManager
+import os
 import sys
 import time
 from binance import exceptions
@@ -13,6 +14,8 @@ import json
 from candlestick_chart import CandleStickChart
 from binance.enums import *
 from pattern_checker import BullCryptoMovingAverageChecker, BearCryptoMovingAverageChecker, PatternAction
+
+SAVE_STATE_FILENAME = 'bin_trend_save.json'
 
 HALF_DAY = timedelta(hours=12)
 ONE_DAY = timedelta(days=1)
@@ -256,6 +259,7 @@ class BinanceTrend:
                 order = self.client.get_order(symbol='BNBUSDT', orderId=order['orderId'])
             order['memo'] = 'FEE_PAYMENT'
             self.log_transaction(order)
+            self.log_trade(order)
 
 
     def update_historical_candlesticks(self):
@@ -362,9 +366,26 @@ class BinanceTrend:
 
 
     def find_trade_for_order(self, order):
+        trade_list = []
         print('looking for trades for order: {}', order)
-        trade_list = self.client.get_my_trades(symbol=order['symbol'],
-                                               startTime=order['transactTime'])
+        if 'time' in order:
+            start = order['time']
+        elif 'transactTime' in order:
+            start = order['transactTime']
+        elif 'updateTime' in order:
+            start = order['updateTime']
+        else:
+            raise Exception('find_trade_for_order: Order does not have a start time: {}'.format(order))
+
+        # Sometimes we get read timeouts looking up trades.  Try a few times before giving up.
+        for i in range(0, 5):
+            try:
+                trade_list = self.client.get_my_trades(symbol=order['symbol'], startTime=start)
+                break
+            except requests.exceptions.ReadTimeout as e:
+                self.exception_logger.warning('Read timeout looking up trades. {}'.format(e))
+                self.exception_logger.error(traceback.format_exc())
+                pass
         print('trade list: {}'.format(trade_list))
         order_trades = []
         for trade in trade_list:
@@ -406,15 +427,64 @@ class BinanceTrend:
 
     def update_fees(self, trade, order_type):
         # calculate entry fees
-        if 'fills' not in trade[order_type]:
-            trade[order_type]['fills'] = self.find_trade_for_order(trade[order_type])
-            print('{} fills: {}'.format(order_type, trade[order_type]['fills']))
         for fill in trade[order_type]['fills']:
             if fill['commissionAsset'] in trade['fee']:
                 trade['fee'][fill['commissionAsset']] += float(fill['commission'])
             else:
                 trade['fee'][fill['commissionAsset']] = float(fill['commission'])
 
+
+    def set_save_point(self, trade, trade_status, pattern_checker_name, pattern_checker_stop_loss, pattern_checker_status):
+        print('saving to file: {}'.format(SAVE_STATE_FILENAME))
+        save_point = dict()
+        save_point['trade'] = trade
+        save_point['status'] = trade_status
+        save_point['pattern_checker_name'] = pattern_checker_name
+        save_point['pattern_checker_stop_loss'] = pattern_checker_stop_loss
+        save_point['pattern_checker_status'] = pattern_checker_status
+        save_point['exchange'] = 'binance'
+        save_point['interval'] = self.interval
+        save_point['pair'] = self.PAIR1
+        save_point['timestamp'] = datetime.utcnow().isoformat()
+
+        with open(SAVE_STATE_FILENAME, 'w') as save_file:
+            save_file.write(json.dumps({'bin_trend_save_state': save_point}))
+            print('data saved: {}'.format(save_point))
+
+
+    def clear_save_point(self):
+        print('removing save point')
+        os.remove(SAVE_STATE_FILENAME)
+
+
+    def read_save_point(self):
+        # read in the save file
+        with open(SAVE_STATE_FILENAME, 'r') as save_file:
+            previous_state = save_file.read()
+            if previous_state != '':
+                # parse out values
+                save_point = json.loads(previous_state)
+
+                # see if the save file is still valid.
+
+                # verify the exchange
+                if save_point['exchange'] != 'binance':
+                    return None
+                # verify the interval
+                if save_point['interval'] != self.interval:
+                    return None
+                # verify the trading pair
+                if save_point['pair'] != self.PAIR1:
+                    return None
+
+                # check that the stop loss is still in place.  if not, the save point is no longer valid
+
+                # check that the last trade for this pair is the one in the save point
+
+                # restore the save point
+                return save_point
+
+        return None
 
     def check_trend(self):
         start_time = datetime.utcnow()
@@ -424,7 +494,7 @@ class BinanceTrend:
         self.update_historical_candlesticks()
 
         chart = self.candlesticks[self.PAIR1]
-        checker_list = {}
+        checker_list = dict()
         checker_list['BullCryptoMA'] = BullCryptoMovingAverageChecker(chart.chart_data)
         checker_list['BearCryptoMA'] = BearCryptoMovingAverageChecker(chart.chart_data)
         current_status = PatternAction.WAIT
@@ -439,6 +509,16 @@ class BinanceTrend:
         loss_count = 0
         loss_total = 0
         loss_cost = 0
+
+        save_point = self.read_save_point()
+        if save_point:
+            current_trade = save_point['trade']
+            current_status = save_point['status']
+            checker_name = save_point['pattern_checker_name']
+            current_checker = checker_list[checker_name]
+            current_checker.stop_loss = save_point['pattern_checker_stop_loss']
+            current_checker.status = save_point['pattern_checker_status']
+
         while True:
             if not chart.metric_to_be_processed.empty():
                 chart.update_metrics()
@@ -481,6 +561,12 @@ class BinanceTrend:
                 current_trade['pattern'] = checker_name
                 current_status = PatternAction.HOLD
                 current_checker.status = PatternAction.HOLD
+                # save our current state so we can restore if something fails.
+                self.set_save_point(trade=current_trade,
+                                    trade_status=current_status,
+                                    pattern_checker_name=checker_name,
+                                    pattern_checker_stop_loss=current_checker.stop_loss,
+                                    pattern_checker_status=current_checker.status)
                 trade_list[time_stamp] = current_trade
 
             elif proposed_action == PatternAction.EXIT_TRADE:
@@ -491,6 +577,8 @@ class BinanceTrend:
                 self.exit_trade(current_trade, price_out=position)
                 current_status = PatternAction.WAIT
                 current_checker.status = PatternAction.WAIT
+                # we're out of the trade now so we can clear the save point
+                self.clear_save_point()
                 # update statistics
                 if current_trade['profit'] > 0:
                     win_count += 1
@@ -612,17 +700,21 @@ class BinanceTrend:
             # Hit a hard stop, nothing to do but record the data
             trade['stop_loss_order'] = stop_order
             exit_order = stop_order
-            # trade['price_out'] = float(stop_order['price'])  # TODO: see if this is average / best / target
-            # trade['profit'] = (trade['price_out'] - trade['price_in']) * trade['position_size']
-            # # calculate stop loss fees
-            # self.update_fees(trade, 'stop_loss_order')
+            stop_order['original_price'] = stop_order['price']
+
         else:
             # the stop loss order wasn't executed, cancel it and exit the trade
+            # TODO: put this in a try/except block on the off chance we cancel it right after
+            # TODO:    it gets filled.
             stop_order = self.client.cancel_order(symbol=self.PAIR1, orderId=stop_order['orderId'])
             exit_order = self.create_market_order(pair=self.PAIR1,
                                                   direction=direction,
                                                   quantity=trade['position_size'])
 
+        if 'fills' not in exit_order:
+            exit_order['fills'] = self.find_trade_for_order(exit_order)
+            print('fills: {}'.format(exit_order['fills']))
+            exit_order['price'] = self.calculate_final_order_price(exit_order)
         print('new exit order: {}'.format(exit_order))
         print('canceled stop order: {}'.format(stop_order))
         trade['exit_order'] = exit_order

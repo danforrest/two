@@ -640,7 +640,7 @@ class BearCryptoMovingAverageChecker(PatternChecker):
 
     def check_exit(self, index):
 
-        #### TODO: Exit immediately or drop stop loss to a break even/slight win if lower time
+        #### TODO: Exit immediately or drop stop loss to a break even/slight win if lower time frame
         #### TODO  jumps fast against you
 
         if self.status not in [PatternAction.HOLD]:
