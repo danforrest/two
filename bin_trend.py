@@ -459,30 +459,33 @@ class BinanceTrend:
 
     def read_save_point(self):
         # read in the save file
-        with open(SAVE_STATE_FILENAME, 'r') as save_file:
-            previous_state = save_file.read()
-            if previous_state != '':
-                # parse out values
-                save_point = json.loads(previous_state)
+        try:
+            with open(SAVE_STATE_FILENAME, 'r') as save_file:
+                previous_state = save_file.read()
+                if previous_state != '':
+                    # parse out values
+                    save_point = json.loads(previous_state)['bin_trend_save_state']
 
-                # see if the save file is still valid.
+                    # see if the save file is still valid.
 
-                # verify the exchange
-                if save_point['exchange'] != 'binance':
-                    return None
-                # verify the interval
-                if save_point['interval'] != self.interval:
-                    return None
-                # verify the trading pair
-                if save_point['pair'] != self.PAIR1:
-                    return None
+                    # verify the exchange
+                    if save_point['exchange'] != 'binance':
+                        return None
+                    # verify the interval
+                    if save_point['interval'] != self.interval:
+                        return None
+                    # verify the trading pair
+                    if save_point['pair'] != self.PAIR1:
+                        return None
 
-                # check that the stop loss is still in place.  if not, the save point is no longer valid
+                    # check that the stop loss is still in place.  if not, the save point is no longer valid
 
-                # check that the last trade for this pair is the one in the save point
+                    # check that the last trade for this pair is the one in the save point
 
-                # restore the save point
-                return save_point
+                    # restore the save point
+                    return save_point
+        except FileNotFoundError:
+            pass
 
         return None
 
@@ -512,12 +515,42 @@ class BinanceTrend:
 
         save_point = self.read_save_point()
         if save_point:
+            print('Restoring from save point')
             current_trade = save_point['trade']
             current_status = save_point['status']
+            print('Status: {}'.format(current_status))
             checker_name = save_point['pattern_checker_name']
+            print('Pattern: {}'.format(checker_name))
             current_checker = checker_list[checker_name]
             current_checker.stop_loss = save_point['pattern_checker_stop_loss']
             current_checker.status = save_point['pattern_checker_status']
+
+            if current_trade:
+                log_template = '{timestamp} {direction} price in: {price_in} size: {position} risk: {risk}'
+                print(log_template.format(direction=current_trade['direction'],
+                                          price_in=current_trade['price_in'],
+                                          risk=current_trade['risk'],
+                                          position=current_trade['position_size'],
+                                          timestamp=current_trade['time_in']))
+                # make sure the stop loss is still in place
+                stop_order = self.client.get_order(symbol=self.PAIR1,
+                                                   orderId=current_trade['stop_loss_order']['orderId'])
+                if 'status' not in stop_order or stop_order['status'] == 'CANCELED':
+                    # re-create the stop order if it doesn't exist or was canceled
+                    print('Stop loss order was canceled.  Create a new one.')
+                    stop_order = self.create_stop_loss_limit_trade(pair=self.PAIR1,
+                                                                   direction=stop_order['side'],
+                                                                   stop_price=float(stop_order['stopPrice']),
+                                                                   sale_price=float(stop_order['price']),
+                                                                   quantity=float(stop_order['origQty']))
+                    current_trade['stop_loss_order'] = stop_order
+                elif stop_order['status'] == 'FILLED':
+                    # we hit the stop loss while offline.  reset trade
+                    print('Stop loss was filled while offline.  Start fresh.')
+                    current_trade = None
+                    current_status = PatternAction.WAIT
+                    checker_name = None
+                    current_checker = None
 
         while True:
             if not chart.metric_to_be_processed.empty():
@@ -744,7 +777,7 @@ class BinanceTrend:
     def run_trend(self):
 
             self.start_logging()
-            self.cancel_all_orders()
+            #self.cancel_all_orders()
             self.query_coin_balances()
             self.launch_socket_listeners()
 
