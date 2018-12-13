@@ -14,6 +14,7 @@ import json
 from candlestick_chart import CandleStickChart
 from binance.enums import *
 from pattern_checker import BullCryptoMovingAverageChecker, BearCryptoMovingAverageChecker, PatternAction
+import decimal
 
 SAVE_STATE_FILENAME = 'bin_trend_save.json'
 
@@ -79,13 +80,13 @@ class BinanceTrend:
     COIN2 = 'USDT'
     PAIR1 = 'BTCUSDT'
 
-    TICK = {'BTCUSDT': 0.01}
-    PRICE_PRECISION = {'BTCUSDT': 2}
-    PRICE_FORMAT = {'BTCUSDT': '%.2f'}
-    QUANTITY_PRECISION = {'BTCUSDT': 6}
-    SPREAD_THRESHOLD = {'BTCUSDT': 0.75}
-    MIN_AMOUNT = {'BTCUSDT': 0.000001}
-    MIN_NOTIONAL = {'BTCUSDT': 1.0}
+    TICK = dict()
+    PRICE_PRECISION = dict()
+    PRICE_FORMAT = dict()
+    QUANTITY_PRECISION = dict()
+    SPREAD_THRESHOLD = dict()
+    MIN_AMOUNT = dict()
+    MIN_NOTIONAL = dict()
 
     FEE = 0.00075
     BNB_QUANTITY = 10.0
@@ -97,7 +98,7 @@ class BinanceTrend:
                     'BTC': {'free': 0.0, 'locked': 0.0},
                     'USDT': {'free': 0.0, 'locked': 0.0}}
 
-    interval = Client.KLINE_INTERVAL_1MINUTE
+    interval = Client.KLINE_INTERVAL_15MINUTE
     candlesticks = {'BTCUSDT': CandleStickChart('BTCUSDT', interval)}
 
     total_return = 0.0
@@ -113,6 +114,34 @@ class BinanceTrend:
             self.api_secret = keys['binance']['api_secret']
         self.client = Client(self.api_key, self.api_secret)
         self.bm = BinanceSocketManager(self.client)
+        self.get_exchanage_data()
+
+
+    def num_of_decimal_places(self, number_string):
+        # return 'x' such that the input number is equivalent to 10^(-x)
+        if float(number_string) >= 1.0:
+            return 0
+        else:
+            # use str(float()) to lop off any trailing zeros
+            return abs(decimal.Decimal(str(float(number_string))).as_tuple().exponent)
+
+
+    def get_exchanage_data(self):
+        info = self.client.get_exchange_info()
+        for pair in info['symbols']:
+            if pair['symbol'] in [self.PAIR1]:
+                for filter in pair['filters']:
+                    if filter['filterType'] == 'PRICE_FILTER':
+                        self.TICK[self.PAIR1] = float(filter['tickSize'])
+                        precision = self.num_of_decimal_places(filter['tickSize'])
+                        self.PRICE_PRECISION[self.PAIR1] = precision
+                        self.PRICE_FORMAT[self.PAIR1] = '%.{}f'.format(precision)
+                    elif filter['filterType'] == 'LOT_SIZE':
+                        self.MIN_AMOUNT[self.PAIR1] = float(filter['stepSize'])
+                        self.QUANTITY_PRECISION[self.PAIR1] = self.num_of_decimal_places(filter['stepSize'])
+                    elif filter['filterType'] == 'MIN_NOTIONAL':
+                        self.MIN_NOTIONAL[self.PAIR1] = float(filter['minNotional'])
+
 
     def process_btcusdt_kline_message(self, msg):
         # add the candle to our data set
@@ -505,7 +534,7 @@ class BinanceTrend:
         checker_name = None
         trade_list = {}
         current_trade = None
-        MAX_RISK = 2
+        MAX_RISK = 10
         win_count = 0
         win_total = 0
         win_profit = 0
@@ -547,6 +576,52 @@ class BinanceTrend:
                 elif stop_order['status'] == 'FILLED':
                     # we hit the stop loss while offline.  reset trade
                     print('Stop loss was filled while offline.  Start fresh.')
+
+                    # TODO Clean this up
+
+                    current_trade['price_out_target'] = stop_order['stopPrice']
+                    current_trade['stop_loss_order'] = stop_order
+                    exit_order = stop_order
+                    stop_order['original_price'] = stop_order['price']
+
+                    if 'fills' not in exit_order:
+                        exit_order['fills'] = self.find_trade_for_order(exit_order)
+                        exit_order['price'] = self.calculate_final_order_price(exit_order)
+                    current_trade['exit_order'] = exit_order
+                    current_trade['price_out'] = float(exit_order['price'])
+                    if current_trade['direction'] == PatternAction.GO_LONG:
+                        current_trade['profit'] = (current_trade['price_out'] - current_trade['price_in']) * current_trade['position_size']
+                    else:
+                        current_trade['profit'] = (current_trade['price_in'] - current_trade['price_out']) * current_trade['position_size']
+                    # calculate exit fees
+                    self.update_fees(current_trade, 'exit_order')
+
+                    current_trade['R'] = current_trade['profit'] / current_trade['risk']
+                    if 'updateTime' in stop_order:
+                        current_trade['time_out'] = datetime.utcfromtimestamp(stop_order['updateTime']/1000.0).isoformat()
+                    elif 'transactTime' in stop_order:
+                        current_trade['time_out'] = datetime.utcfromtimestamp(
+                            stop_order['transactTime'] / 1000.0).isoformat()
+                    elif 'time' in stop_order:
+                        current_trade['time_out'] = datetime.utcfromtimestamp(
+                            stop_order['time'] / 1000.0).isoformat()
+                    else:
+                        current_trade['time_out'] = datetime.utcnow().isoformat()
+                    self.query_coin_balances()
+                    current_trade['balance_out'] = {'BTC': self.balance_book['BTC']['free'],
+                                                    'USDT': self.balance_book['USDT']['free']}
+                    log_template = '{direction} {price_in} {price_out} profit: {profit} risk: {risk} reward: {reward}'
+                    print(log_template.format(direction=current_trade['direction'],
+                                              price_in=current_trade['price_in'],
+                                              price_out=current_trade['price_out'],
+                                              profit=current_trade['profit'],
+                                              risk=current_trade['risk'],
+                                              reward=current_trade['R']))
+                    self.log_trade(current_trade)
+                    current_checker.stop_loss = 0
+                    current_checker.status = PatternAction.WAIT
+                    self.clear_save_point()
+
                     current_trade = None
                     current_status = PatternAction.WAIT
                     checker_name = None
@@ -560,16 +635,17 @@ class BinanceTrend:
                 time.sleep(5)
                 continue
             time_stamp = chart.to_be_processed.get()
-            print('timestamp is ready: {} {}'.format(time_stamp, chart.to_be_processed.qsize()))
+            print('timestamp is ready: {} {}'.format(datetime.utcfromtimestamp(time_stamp / 1000).isoformat(),
+                                                     chart.to_be_processed.qsize()))
 
             #### TODO Set up for using WAIT->ENTER->HOLD->EXIT->WAIT
             # determine what action we want to take next, if any
             proposed_action = None
             position = None
             if current_status in [PatternAction.WAIT]:
-                print('check for entry')
                 # we are currently not in a trade, see if we should go long or short or do nothing
                 for name, checker in checker_list.items():
+                    print('check for entry {}'.format(name))
                     proposed_action, position = checker.check_entry(time_stamp)
                     if proposed_action in [PatternAction.GO_LONG, PatternAction.GO_SHORT]:
                         # go with the first algo that gives us a signal (initially, the two are mutually
@@ -578,7 +654,9 @@ class BinanceTrend:
                         checker_name = name
                         break
             elif current_status in [PatternAction.HOLD]:
-                print('check for exit')
+                print('check for exit: {} {} {}'.format(chart.chart_data[time_stamp].close,
+                                                        chart.chart_data[time_stamp].metrics['ema100'],
+                                                        current_checker.stop_loss))
                 # we are currently in a trade, see if we should exit
                 proposed_action, position = current_checker.check_exit(time_stamp)
 
@@ -685,6 +763,7 @@ class BinanceTrend:
                  'position_size': round(position_size, self.QUANTITY_PRECISION[self.PAIR1]),
                  'risk': actual_risk,
                  'fee': {},
+                 'max_retracement': max_retracement,
                  'balance_in': {'BTC': self.balance_book['BTC']['free'],
                                 'USDT': self.balance_book['USDT']['free']}}
         log_template = '{direction} price in: {price_in} max retrace: {retrace} size: {position} risk: {risk}'
@@ -731,7 +810,6 @@ class BinanceTrend:
                                            orderId=trade['stop_loss_order']['orderId'])
         if stop_order['status'] == 'FILLED':
             # Hit a hard stop, nothing to do but record the data
-            trade['stop_loss_order'] = stop_order
             exit_order = stop_order
             stop_order['original_price'] = stop_order['price']
 
