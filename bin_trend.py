@@ -20,6 +20,7 @@ SAVE_STATE_FILENAME = 'bin_trend_save.json'
 
 HALF_DAY = timedelta(hours=12)
 ONE_DAY = timedelta(days=1)
+ONE_WEEK = timedelta(weeks=1)
 FORWARD = 1
 REVERSE = 0
 
@@ -112,7 +113,7 @@ class BinanceTrend:
                 exit(0)
             self.api_key = keys['binance']['api_key']
             self.api_secret = keys['binance']['api_secret']
-        self.client = Client(self.api_key, self.api_secret)
+        self.client = Client(self.api_key, self.api_secret, {'timeout': 30})
         self.bm = BinanceSocketManager(self.client)
         self.get_exchanage_data()
 
@@ -228,9 +229,12 @@ class BinanceTrend:
         self.transaction_logger.setLevel(logging.DEBUG)
 
         base = 'logs\\'
-        trade_log_file_name = '%sbin_trend_trades_%s.log' % (base, self.log_start_time.isoformat())
-        exception_log_file_name = '%sbin_trend_exceptions_%s.log' % (base, self.log_start_time.isoformat())
-        transaction_log_file_name = '%sbin_trend_transactions_%s.log' % (base, self.log_start_time.isoformat())
+        trade_log_template = '{dir}bin_trend_trades_{date:%Y}_{date:%m}.log'
+        exception_log_template = '{dir}bin_trend_exceptions_{date:%Y}_{date:%m}.log'
+        transaction_log_template = '{dir}bin_trend_transactions_{date:%Y}_{date:%m}.log'
+        trade_log_file_name = trade_log_template.format(dir=base, date=self.log_start_time)
+        exception_log_file_name = exception_log_template.format(dir=base, date=self.log_start_time)
+        transaction_log_file_name = transaction_log_template.format(dir=base, date=self.log_start_time)
         trade_log_file_handler = logging.FileHandler(trade_log_file_name)
         trade_log_file_handler.setLevel(logging.INFO)
         exception_log_file_handler = logging.FileHandler(exception_log_file_name)
@@ -320,6 +324,9 @@ class BinanceTrend:
 
 
     def calculate_final_order_price(self, order):
+        if len(order['fills']) == 0:
+            return 0.0
+
         total_quantity = 0.0
         weighted_price = 0.0
         for trade in order['fills']:
@@ -381,9 +388,10 @@ class BinanceTrend:
             self.log_transaction(stop_order)
         except exceptions.BinanceAPIException as e:
             self.exception_logger.error('Time: {}'.format(datetime.utcnow().isoformat()))
-            self.exception_logger.error('Exception placing a stop loss sell order')
-            self.exception_logger.error('Sell Pair: {} Adjusted Quantity: {}'.format(self.PAIR1,
-                                                                                     str(formatted_quantity)))
+            self.exception_logger.error('Exception placing a stop loss {} order'.format(direction))
+            self.exception_logger.error('{} Pair: {} Adjusted Quantity: {}'.format(direction,
+                                                                                   self.PAIR1,
+                                                                                   str(formatted_quantity)))
             self.exception_logger.error('Stop price: {} Order price: {}'.format(formatted_stop_price,
                                                                                 formatted_price))
             if e.code == -1013:
@@ -407,13 +415,14 @@ class BinanceTrend:
             raise Exception('find_trade_for_order: Order does not have a start time: {}'.format(order))
 
         # Sometimes we get read timeouts looking up trades.  Try a few times before giving up.
-        for i in range(0, 5):
+        for i in range(0, 10):
             try:
                 trade_list = self.client.get_my_trades(symbol=order['symbol'], startTime=start)
                 break
             except requests.exceptions.ReadTimeout as e:
+                self.exception_logger.warning('Time: ' + datetime.utcnow().isoformat())
                 self.exception_logger.warning('Read timeout looking up trades. {}'.format(e))
-                self.exception_logger.error(traceback.format_exc())
+                self.exception_logger.warning(traceback.format_exc())
                 pass
         print('trade list: {}'.format(trade_list))
         order_trades = []
@@ -564,6 +573,7 @@ class BinanceTrend:
                 # make sure the stop loss is still in place
                 stop_order = self.client.get_order(symbol=self.PAIR1,
                                                    orderId=current_trade['stop_loss_order']['orderId'])
+                print('stop order: {}'.format(stop_order))
                 if 'status' not in stop_order or stop_order['status'] == 'CANCELED':
                     # re-create the stop order if it doesn't exist or was canceled
                     print('Stop loss order was canceled.  Create a new one.')
@@ -573,6 +583,12 @@ class BinanceTrend:
                                                                    sale_price=float(stop_order['price']),
                                                                    quantity=float(stop_order['origQty']))
                     current_trade['stop_loss_order'] = stop_order
+                    # since we re-created the stop loss order, we also need to re-create the save point
+                    self.set_save_point(trade=current_trade,
+                                        trade_status=current_status,
+                                        pattern_checker_name=checker_name,
+                                        pattern_checker_stop_loss=current_checker.stop_loss,
+                                        pattern_checker_status=current_checker.status)
                 elif stop_order['status'] == 'FILLED':
                     # we hit the stop loss while offline.  reset trade
                     print('Stop loss was filled while offline.  Start fresh.')
@@ -586,7 +602,14 @@ class BinanceTrend:
 
                     if 'fills' not in exit_order:
                         exit_order['fills'] = self.find_trade_for_order(exit_order)
-                        exit_order['price'] = self.calculate_final_order_price(exit_order)
+                        if len(exit_order['fills']) > 0:
+                            exit_order['price'] = self.calculate_final_order_price(exit_order)
+                        else:
+                            self.exception_logger.error('Time: {}'.format(datetime.utcnow().isoformat()))
+                            self.exception_logger.warning('Unable to find trades for order: {}'.format(exit_order))
+                            exit_order['price'] = 0.0
+                    self.log_transaction(stop_order)
+
                     current_trade['exit_order'] = exit_order
                     current_trade['price_out'] = float(exit_order['price'])
                     if current_trade['direction'] == PatternAction.GO_LONG:
@@ -626,6 +649,9 @@ class BinanceTrend:
                     current_status = PatternAction.WAIT
                     checker_name = None
                     current_checker = None
+        else:
+            print('No save point')
+
 
         while True:
             if not chart.metric_to_be_processed.empty():
@@ -655,7 +681,7 @@ class BinanceTrend:
                         break
             elif current_status in [PatternAction.HOLD]:
                 print('check for exit: {} {} {}'.format(chart.chart_data[time_stamp].close,
-                                                        chart.chart_data[time_stamp].metrics['ema100'],
+                                                        chart.chart_data[time_stamp].metric['ema200'],
                                                         current_checker.stop_loss))
                 # we are currently in a trade, see if we should exit
                 proposed_action, position = current_checker.check_exit(time_stamp)
@@ -738,7 +764,7 @@ class BinanceTrend:
                 actual_risk = position_size * max_retracement
             side = SIDE_BUY
             stop_loss_side = SIDE_SELL
-            stop_loss_sale_price = stop_loss * 0.5
+            stop_loss_sale_price = stop_loss * 0.75
             # verify stop loss is less than price in
         elif direction == PatternAction.GO_SHORT:
             current_balance = self.balance_book['BTC']['free']
@@ -750,7 +776,7 @@ class BinanceTrend:
                 actual_risk = position_size * max_retracement
             side = SIDE_SELL
             stop_loss_side = SIDE_BUY
-            stop_loss_sale_price = stop_loss * 2.0
+            stop_loss_sale_price = stop_loss * 1.25
             # verify stop loss is more than price in
         else:
             # Shouldn't happen
@@ -765,7 +791,8 @@ class BinanceTrend:
                  'fee': {},
                  'max_retracement': max_retracement,
                  'balance_in': {'BTC': self.balance_book['BTC']['free'],
-                                'USDT': self.balance_book['USDT']['free']}}
+                                'USDT': self.balance_book['USDT']['free'],
+                                'BNB': self.balance_book['BNB']['free']}}
         log_template = '{direction} price in: {price_in} max retrace: {retrace} size: {position} risk: {risk}'
         print(log_template.format(direction=direction,
                                   price_in=price_in,
@@ -798,11 +825,16 @@ class BinanceTrend:
         return trade
 
 
-    def exit_trade(self, trade, price_out=0.0):
+    def exit_trade(self, trade, price_out):
+        # shrink/grow the position size so in the end we have approximately equal valued
+        # positions in BTC and USDT.
+        position_mid = 0.5 * (self.balance_book['BTC']['free'] + (self.balance_book['USDT']['free'] / price_out))
         if trade['direction'] == PatternAction.GO_LONG:
             direction = SIDE_SELL
+            position_out = self.balance_book['BTC']['free'] - position_mid
         else:
             direction = SIDE_BUY
+            position_out = position_mid - self.balance_book['BTC']['free']
 
         trade['price_out_target'] = price_out
         # check stop order to see if we already exited the trade
@@ -820,16 +852,25 @@ class BinanceTrend:
             stop_order = self.client.cancel_order(symbol=self.PAIR1, orderId=stop_order['orderId'])
             exit_order = self.create_market_order(pair=self.PAIR1,
                                                   direction=direction,
-                                                  quantity=trade['position_size'])
+                                                  quantity=position_out)
 
         if 'fills' not in exit_order:
             exit_order['fills'] = self.find_trade_for_order(exit_order)
             print('fills: {}'.format(exit_order['fills']))
-            exit_order['price'] = self.calculate_final_order_price(exit_order)
+            if len(exit_order['fills']) > 0:
+                exit_order['price'] = self.calculate_final_order_price(exit_order)
+            else:
+                self.exception_logger.error('Time: {}'.format(datetime.utcnow().isoformat()))
+                self.exception_logger.warning('Unable to find trades for order: {}'.format(exit_order))
+                exit_order['price'] = 0.0
+        if stop_order['status'] == 'FILLED':
+            # we need to wait to log the stop order till after we look for the transactions that
+            # filled the order
+            self.log_transaction(stop_order)
         print('new exit order: {}'.format(exit_order))
         print('canceled stop order: {}'.format(stop_order))
         trade['exit_order'] = exit_order
-        trade['stop_loss_order'] = stop_order # TODO make sure the stop order is canceled
+        trade['stop_loss_order'] = stop_order  # TODO make sure the stop order is canceled
         trade['price_out'] = float(exit_order['price'])  # TODO: make sure the trade is filled before getting the price
         if trade['direction'] == PatternAction.GO_LONG:
             trade['profit'] = (trade['price_out'] - trade['price_in']) * trade['position_size']
@@ -842,7 +883,8 @@ class BinanceTrend:
         trade['time_out'] = datetime.utcnow().isoformat()
         self.query_coin_balances()
         trade['balance_out'] = {'BTC': self.balance_book['BTC']['free'],
-                                'USDT': self.balance_book['USDT']['free']}
+                                'USDT': self.balance_book['USDT']['free'],
+                                'BNB': self.balance_book['BNB']['free']}
         log_template = '{direction} {price_in} {price_out} profit: {profit} risk: {risk} reward: {reward}'
         print(log_template.format(direction=trade['direction'],
                                   price_in=trade['price_in'],
@@ -853,6 +895,20 @@ class BinanceTrend:
 
 
     def run_trend(self):
+
+            for i in range(1, 5):
+                local_time1 = int(time.time() * 1000)
+                server_time = self.client.get_server_time()
+                local_time2 = int(time.time() * 1000)
+                diff1 = server_time['serverTime'] - local_time1
+                diff2 = local_time2 - server_time['serverTime']
+                print("local1: %s server:%s local2: %s diff1:%s diff2:%s" % (local_time1,
+                                                                             server_time['serverTime'],
+                                                                             local_time2,
+                                                                             diff1,
+                                                                             diff2))
+                time.sleep(2)
+
 
             self.start_logging()
             #self.cancel_all_orders()
@@ -874,20 +930,20 @@ class BinanceTrend:
                     print('Timestamp error code: ', e)
                     print('Pausing and trying again')
                     exception_count += 1
-                    if exception_count >= 3:
+                    # if exception_count >= 3:
                         # this exception keeps showing up so something must be wrong.  cancel
                         # all orders and re-raise the exception
-                        self.cancel_all_orders()
+                        # self.cancel_all_orders()
                         # raise e
                     time.sleep(3)
                 elif e.code == -1001:
                     self.exception_logger.error('Disconnect error, pausing and reconnecting')
                     print('Disconnected, pause and reconnect', e)
                     exception_count += 1
-                    if exception_count >= 3:
+                    # if exception_count >= 3:
                         # too many exceptions are occurring so something must be wrong.  shutdown
                         # everything.
-                        self.cancel_all_orders()
+                        # self.cancel_all_orders()
                         # raise e
                     self.shutdown_socket_listeners()
                     time.sleep(3)
@@ -911,7 +967,7 @@ class BinanceTrend:
                     #     # everything.
                     #     self.cancel_all_orders()
                     #     raise e
-                    self.cancel_all_orders()
+                    # self.cancel_all_orders()
                     self.shutdown_socket_listeners()
                     time.sleep(3)
                     self.launch_socket_listeners()
@@ -932,7 +988,7 @@ class BinanceTrend:
                 time.sleep(3)
                 self.client = Client(self.api_key, self.api_secret)
                 self.bm = BinanceSocketManager(self.client)
-                self.cancel_all_orders()
+                # self.cancel_all_orders()
                 self.query_coin_balances()
                 self.launch_socket_listeners()
             except Exception as e:
@@ -944,7 +1000,7 @@ class BinanceTrend:
                 time.sleep(3)
                 self.client = Client(self.api_key, self.api_secret)
                 self.bm = BinanceSocketManager(self.client)
-                self.cancel_all_orders()
+                # self.cancel_all_orders()
                 self.query_coin_balances()
                 self.launch_socket_listeners()
 
