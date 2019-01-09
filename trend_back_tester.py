@@ -13,8 +13,9 @@ import copy
 import json
 from candlestick_chart import CandleStickChart
 from binance.enums import *
-from pattern_checker import BullCryptoMovingAverageCheckerTest, BearCryptoMovingAverageCheckerTest, \
-    RadgeMeanReversion, PatternAction, BullCryptoMovingAverageChecker, BearCryptoMovingAverageChecker
+from pattern_checker import PatternAction, BullCryptoMovingAverageChecker, BearCryptoMovingAverageChecker
+from pattern_checker_test import BullCryptoMovingAverageCheckerTest, BearCryptoMovingAverageCheckerTest, \
+    RadgeMeanReversion
 import decimal
 
 HALF_DAY = timedelta(hours=12)
