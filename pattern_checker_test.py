@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from pattern_checker import PatternAction, PatternChecker
 
@@ -713,6 +713,146 @@ class BearCryptoMovingAverageCheckerTest(PatternChecker):
             # print('Selling due to stop loss')
             self.status = PatternAction.EXIT_TRADE
             return PatternAction.EXIT_TRADE, self.soft_stop
+
+        return PatternAction.HOLD, None
+
+
+class PumpReversion(PatternChecker):
+    status = PatternAction.WAIT
+    stop_loss = 0
+    low_point = None
+    high_point = None
+    retest_wait = None
+    entry_price = None
+    exit_price = None
+    exit_time = None
+    THRESHOLD = 1.01
+    MAX_TIME = timedelta(days=2.0)
+    RETEST_TIME = timedelta(minutes=20.0)
+    current_stage = None
+
+    PRE_PUMP = 'PRE_PUMP'
+    PUMP = 'PUMP'
+    POST_PUMP = 'POST_PUMP'
+    RETEST_HIGH = 'RETEST_HIGH'
+    UNWIND = 'UNWIND'
+
+    def check_entry(self, index):
+        if self.status not in [PatternAction.WAIT]:
+            return self.status, None
+
+        self.stop_loss = 0
+        bucket = self.chart[index]
+        time_string = datetime.utcfromtimestamp(index/1000).isoformat()
+
+        if self.current_stage == self.PRE_PUMP:
+            if bucket.close < bucket.open:
+                self.low_point = bucket.close
+                return PatternAction.WAIT, None
+            else:
+                self.current_stage = self.PUMP
+
+        if self.current_stage == self.PUMP:
+            if bucket.open <= bucket.close:
+                self.high_point = bucket.close
+                return PatternAction.WAIT, None
+            else:
+                if self.high_point / self.low_point < self.THRESHOLD:
+                    # didn't pump enough, reset
+                    self.low_point = bucket.close
+                    self.high_point = None
+                    self.retest_wait = None
+                    self.current_stage = self.PRE_PUMP
+                    return PatternAction.WAIT, None
+                else:
+                    self.current_stage = self.POST_PUMP
+                    self.retest_wait = datetime.utcnow() + self.RETEST_TIME
+                    self.entry_price = self.high_point
+                    self.exit_price = (self.high_point + self.low_point) / 2.0
+                    self.low_point = bucket.close
+                    self.high_point = None
+
+        if self.current_stage == self.POST_PUMP:
+            if bucket.high > self.entry_price:
+                # going short!
+                self.current_stage = self.UNWIND
+                self.stop_loss = self.exit_price
+                self.status = PatternAction.GO_SHORT
+                self.exit_time = datetime.utcnow() + self.MAX_TIME
+
+                return PatternAction.GO_SHORT, {'price': bucket.close,
+                                                'stop': self.stop_loss
+                                                }
+            elif datetime.utcnow() > self.retest_wait:
+                # took too long, going back to pre pump stage
+                if bucket.close < bucket.open:
+                    self.low_point = bucket.close
+                self.current_stage = self.PRE_PUMP
+                self.retest_wait = None
+                self.entry_price = None
+                self.exit_price = None
+                return PatternAction.WAIT, None
+
+        if self.current_stage == self.UNWIND:
+            if bucket.close < bucket.open:
+                self.low_point = bucket.close
+            else:
+                self.low_point = None
+
+        return PatternAction.WAIT, None
+
+        # find the low point before the pump
+        if bucket.close < bucket.open and not self.high_point:
+            self.low_point = bucket.close
+            return PatternAction.WAIT, None
+
+        # find the top of the pump
+        if bucket.open <= bucket.close and self.low_point:
+            if not self.retest_wait:
+                # this is the first time hitting the top of the pump, just mark it and wait
+                # till we re-test the high point.
+                self.high_point = bucket.close
+                return PatternAction.WAIT, None
+            elif datetime.utcnow() < self.retest_wait:
+                # we just hit the top of the pump a second time.  go short
+                self.status = PatternAction.GO_SHORT
+                self.stop_loss = (self.high_point + self.low_point) / 2
+                self.exit_time = datetime.utcnow() + self.MAX_TIME
+
+                return PatternAction.GO_SHORT, {'price': bucket.close,
+                                                'stop': self.stop_loss
+                                                }
+            else:
+                self.low_point = None
+                self.high_point = None
+                self.retest_wait = None
+
+        # we just peaked (1+ candle retracement).
+        if self.high_point / self.low_point <= self.THRESHOLD:
+            self.low_point = None
+            self.high_point = None
+            self.retest_wait = None
+            return PatternAction.WAIT, None
+
+        return PatternAction.WAIT, None
+
+
+
+
+    def check_exit(self, index):
+
+        #### TODO: Exit immediately or drop stop loss to a break even/slight win if lower time frame
+        #### TODO  jumps fast against you
+
+        if self.status not in [PatternAction.HOLD]:
+            return self.status, None
+
+        bucket = self.chart[index]
+
+        if bucket.close > self.stop_loss:
+            print('Selling price target hit')
+            self.status = PatternAction.EXIT_TRADE
+            return PatternAction.EXIT_TRADE, bucket.close
 
         return PatternAction.HOLD, None
 

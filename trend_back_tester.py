@@ -15,7 +15,7 @@ from candlestick_chart import CandleStickChart
 from binance.enums import *
 from pattern_checker import PatternAction, BullCryptoMovingAverageChecker, BearCryptoMovingAverageChecker
 from pattern_checker_test import BullCryptoMovingAverageCheckerTest, BearCryptoMovingAverageCheckerTest, \
-    RadgeMeanReversion
+    RadgeMeanReversion, PumpReversion
 import decimal
 
 HALF_DAY = timedelta(hours=12)
@@ -70,10 +70,11 @@ class BinanceTrend:
     balance_book = {'timestamp': None,
                     'locked': False,
                     'BTC': {'free': 0.3, 'locked': 0.0},
+                    'ETH': {'free': 8.0, 'locked': 0.0},
                     'USDT': {'free': 1000.0, 'locked': 0.0}}
 
     interval = Client.KLINE_INTERVAL_15MINUTE
-    candlesticks = {'BTCUSDT': CandleStickChart('BTCUSDT', interval)}
+    candlesticks = {PAIR1: CandleStickChart(PAIR1, interval)}
 
     def __init__(self):
         with open('api_keys.json') as api_file:
@@ -85,6 +86,33 @@ class BinanceTrend:
             self.api_secret = keys['binance']['api_secret']
         self.client = Client(self.api_key, self.api_secret, {'timeout': 30})
         self.bm = BinanceSocketManager(self.client)
+        self.get_exchanage_data()
+
+
+    def num_of_decimal_places(self, number_string):
+        # return 'x' such that the input number is equivalent to 10^(-x)
+        if float(number_string) >= 1.0:
+            return 0
+        else:
+            # use str(float()) to lop off any trailing zeros
+            return abs(decimal.Decimal(str(float(number_string))).as_tuple().exponent)
+
+
+    def get_exchanage_data(self):
+        info = self.client.get_exchange_info()
+        for pair in info['symbols']:
+            if pair['symbol'] in [self.PAIR1]:
+                for filter in pair['filters']:
+                    if filter['filterType'] == 'PRICE_FILTER':
+                        #self.TICK[self.PAIR1] = float(filter['tickSize'])
+                        precision = self.num_of_decimal_places(filter['tickSize'])
+                        #self.PRICE_PRECISION[self.PAIR1] = precision
+                        #self.PRICE_FORMAT[self.PAIR1] = '%.{}f'.format(precision)
+                    elif filter['filterType'] == 'LOT_SIZE':
+                        #self.MIN_AMOUNT[self.PAIR1] = float(filter['stepSize'])
+                        self.QUANTITY_PRECISION[self.PAIR1] = self.num_of_decimal_places(filter['stepSize'])
+                    #elif filter['filterType'] == 'MIN_NOTIONAL':
+                    #    self.MIN_NOTIONAL[self.PAIR1] = float(filter['minNotional'])
 
 
     def update_historical_candlesticks(self):
@@ -178,7 +206,7 @@ class BinanceTrend:
         checker_list = dict()
         checker_list['BullCryptoMA'] = BullCryptoMovingAverageChecker(chart.chart_data)
         checker_list['BearCryptoMA'] = BearCryptoMovingAverageChecker(chart.chart_data)
-        # checker_list['RadgeMeanReversion'] = RadgeMeanReversion(chart.chart_data)
+        # checker_list['PumpReversion'] = PumpReversion(chart.chart_data)
         current_status = PatternAction.WAIT
         current_checker = None
         checker_name = None
@@ -279,14 +307,14 @@ class BinanceTrend:
                                        stat['fees'], (stat['win_profit'] + stat['loss_cost'])-stat['fees']))
         print(stat_template.format('Total  ', win_count, win_total, win_profit, loss_count, loss_total, loss_cost,
                                    fees, (win_profit + loss_cost)-fees))
-        print('Final balance: {:.4f} {:.4f}'.format(self.balance_book['USDT']['free'], self.balance_book['BTC']['free']))
+        print('Final balance: {:.4f} {:.4f}'.format(self.balance_book['USDT']['free'], self.balance_book[self.COIN1]['free']))
         end_time = datetime.utcnow()
         print('Runtime: {}'.format(end_time-start_time))
         exit(0)
 
 
     def enter_trade(self, direction, price_in, stop_loss, max_risk):
-        print('enter balance: {:.4f} {:.4f}'.format(self.balance_book['USDT']['free'], self.balance_book['BTC']['free']))
+        print('enter balance: {:.4f} {:.4f}'.format(self.balance_book['USDT']['free'], self.balance_book[self.COIN1]['free']))
         max_risk = 0.01 * self.balance_book['USDT']['free']
         max_retracement = abs(price_in - stop_loss)
         position_size = max_risk / max_retracement
@@ -302,10 +330,10 @@ class BinanceTrend:
 
             # update balance
             self.balance_book['USDT']['free'] -= position_size * price_in
-            self.balance_book['BTC']['free'] += position_size
+            self.balance_book[self.COIN1]['free'] += position_size
 
         elif direction == PatternAction.GO_SHORT:
-            current_balance = self.balance_book['BTC']['free']
+            current_balance = self.balance_book[self.COIN1]['free']
             if position_size < 0.9 * current_balance:
                 actual_risk = max_risk
             else:
@@ -315,12 +343,12 @@ class BinanceTrend:
 
             # update balance
             self.balance_book['USDT']['free'] += position_size * price_in
-            self.balance_book['BTC']['free'] -= position_size
+            self.balance_book[self.COIN1]['free'] -= position_size
 
         else:
             # Shouldn't happen
             return
-        print('trade balance: {:.4f} {:.4f}'.format(self.balance_book['USDT']['free'], self.balance_book['BTC']['free']))
+        print('trade balance: {:.4f} {:.4f}'.format(self.balance_book['USDT']['free'], self.balance_book[self.COIN1]['free']))
 
         fee = position_size * price_in * self.FEE
         trade = {'time_in': datetime.utcnow().isoformat(),
@@ -331,7 +359,7 @@ class BinanceTrend:
                  'max_risk': max_risk,
                  'fee_in': fee,
                  'max_retracement': max_retracement,
-                 'balance_in': {'BTC': self.balance_book['BTC']['free'],
+                 'balance_in': {self.COIN1: self.balance_book[self.COIN1]['free'],
                                 'USDT': self.balance_book['USDT']['free']}}
         log_template = '{direction} price in: {price_in} max retrace: {retrace} size: {position} risk: {risk}'
         print(log_template.format(direction=direction,
@@ -343,29 +371,29 @@ class BinanceTrend:
 
 
     def exit_trade(self, trade, price_out):
-        position_mid = 0.5 * (self.balance_book['BTC']['free'] + (self.balance_book['USDT']['free'] / price_out))
+        position_mid = 0.5 * (self.balance_book[self.COIN1]['free'] + (self.balance_book['USDT']['free'] / price_out))
         trade['price_out'] = price_out
         # trade['fee_out'] = trade['position_size'] * trade['price_out'] * self.FEE
         if trade['direction'] == PatternAction.GO_LONG:
             trade['profit'] = (trade['price_out'] - trade['price_in']) * trade['position_size']
-            position_out = self.balance_book['BTC']['free'] - position_mid
+            position_out = self.balance_book[self.COIN1]['free'] - position_mid
             self.balance_book['USDT']['free'] += position_out * price_out
-            self.balance_book['BTC']['free'] -= position_out
+            self.balance_book[self.COIN1]['free'] -= position_out
             # self.balance_book['USDT']['free'] += trade['position_size'] * price_out
-            # self.balance_book['BTC']['free'] -= trade['position_size']
+            # self.balance_book[self.COIN1]['free'] -= trade['position_size']
         else:
             trade['profit'] = (trade['price_in'] - trade['price_out']) * trade['position_size']
-            position_out = position_mid - self.balance_book['BTC']['free']
+            position_out = position_mid - self.balance_book[self.COIN1]['free']
             self.balance_book['USDT']['free'] -= position_out * price_out
-            self.balance_book['BTC']['free'] += position_out
+            self.balance_book[self.COIN1]['free'] += position_out
             # self.balance_book['USDT']['free'] -= trade['position_size'] * price_out
-            # self.balance_book['BTC']['free'] += trade['position_size']
+            # self.balance_book[self.COIN1]['free'] += trade['position_size']
         trade['fee_out'] = position_out * trade['price_out'] * self.FEE
 
         trade['R'] = trade['profit'] / trade['risk']
         trade['time_out'] = datetime.utcnow().isoformat()
 
-        trade['balance_out'] = {'BTC': self.balance_book['BTC']['free'],
+        trade['balance_out'] = {self.COIN1: self.balance_book[self.COIN1]['free'],
                                 'USDT': self.balance_book['USDT']['free']}
         log_template = '{direction} {price_in} {price_out} profit: {profit} risk: {risk} reward: {reward}'
         print(log_template.format(direction=trade['direction'],
@@ -374,7 +402,7 @@ class BinanceTrend:
                                   profit=trade['profit'],
                                   risk=trade['risk'],
                                   reward=trade['R']))
-        print('exit balance: {:.4f} {:.4f}'.format(self.balance_book['USDT']['free'], self.balance_book['BTC']['free']))
+        print('exit balance: {:.4f} {:.4f}'.format(self.balance_book['USDT']['free'], self.balance_book[self.COIN1]['free']))
 
 
     def update_stats(self, stats, current_trade, time_stamp):
