@@ -77,9 +77,9 @@ class BinanceTrend:
     # pair priorities USDT always comes last in a pair.  BTC always comes after all
     # coins other than USDT.  ETH comes after all coins other than USDT and BTC.
     # also, pair should go COIN1/COIN3, COIN2/COIN1, COIN2/COIN3
-    COIN1 = 'BTC'
+    COIN1 = 'ETH'
     COIN2 = 'USDT'
-    PAIR1 = 'BTCUSDT'
+    PAIR1 = COIN1+COIN2
 
     TICK = dict()
     PRICE_PRECISION = dict()
@@ -99,10 +99,11 @@ class BinanceTrend:
                     'locked': False,
                     'BNB': {'free': 0.0, 'locked': 0.0},
                     'BTC': {'free': 0.0, 'locked': 0.0},
+                    'ETH': {'free': 0.0, 'locked': 0.0},
                     'USDT': {'free': 0.0, 'locked': 0.0}}
 
     interval = Client.KLINE_INTERVAL_15MINUTE
-    candlesticks = {'BTCUSDT': CandleStickChart('BTCUSDT', interval)}
+    candlesticks = {PAIR1: CandleStickChart(PAIR1, interval)}
 
     total_return = 0.0
     ready_for_next = True
@@ -180,7 +181,7 @@ class BinanceTrend:
     def launch_socket_listeners(self):
         print('Launch socket listeners')
         self.bm = BinanceSocketManager(self.client)
-        self.btcusdt_conn_key = self.bm.start_kline_socket('BTCUSDT',
+        self.btcusdt_conn_key = self.bm.start_kline_socket(self.PAIR1,
                                                            self.process_btcusdt_kline_message,
                                                            interval=self.interval)
         self.account_conn_key = self.bm.start_user_socket(self.process_account_message)
@@ -190,12 +191,12 @@ class BinanceTrend:
 
         print('initialize candlesticks')
         counter = 0
-        while len(self.candlesticks['BTCUSDT'].chart_data) == 0:
+        while len(self.candlesticks[self.PAIR1].chart_data) == 0:
             counter += 1
             if counter > 20:
                 raise Exception('Socket listener error')
 
-            print(self.candlesticks['BTCUSDT'].chart_data)
+            print(self.candlesticks[self.PAIR1].chart_data)
             time.sleep(1)
 
 
@@ -365,7 +366,9 @@ class BinanceTrend:
             self.exception_logger.error('Buy Pair: {} Price: Market Adjusted Quantity: {}'.format(self.PAIR1,
                                                                                                   str(formatted_quantity)))
             if e.code == -1013:
-                print('Value under min notional: {}'.format(self.MIN_NOTIONAL[self.PAIR1]))
+                print('Value under min notional: {} {} {}'.format(self.MIN_NOTIONAL[self.PAIR1],
+                                                                  direction,
+                                                                  quantity))
             self.exception_logger.error(traceback.format_exc())
             print('Exception placing order', e)
             raise e
@@ -568,12 +571,13 @@ class BinanceTrend:
             current_checker.status = save_point['pattern_checker_status']
 
             if current_trade:
-                log_template = '{timestamp} {direction} price in: {price_in} size: {position} risk: {risk}'
+                log_template = '{timestamp} {direction} price in: {price_in} size: {position} risk: {risk} max retrace: {retrace}'
                 print(log_template.format(direction=current_trade['direction'],
                                           price_in=current_trade['price_in'],
                                           risk=current_trade['risk'],
                                           position=current_trade['position_size'],
-                                          timestamp=current_trade['time_in']))
+                                          timestamp=current_trade['time_in'],
+                                          retrace=current_trade['max_retracement']))
                 # make sure the stop loss is still in place
                 stop_order = self.client.get_order(symbol=self.PAIR1,
                                                    orderId=current_trade['stop_loss_order']['orderId'])
@@ -635,8 +639,8 @@ class BinanceTrend:
                     else:
                         current_trade['time_out'] = datetime.utcnow().isoformat()
                     self.query_coin_balances()
-                    current_trade['balance_out'] = {'BTC': self.balance_book['BTC']['free'],
-                                                    'USDT': self.balance_book['USDT']['free']}
+                    current_trade['balance_out'] = {self.COIN1: self.balance_book[self.COIN1]['free'],
+                                                    self.COIN2: self.balance_book[self.COIN2]['free']}
                     log_template = '{direction} {price_in} {price_out} profit: {profit} risk: {risk} reward: {reward}'
                     print(log_template.format(direction=current_trade['direction'],
                                               price_in=current_trade['price_in'],
@@ -698,7 +702,7 @@ class BinanceTrend:
                 current_trade = self.enter_trade(direction=proposed_action,
                                                  price_in=chart.chart_data[time_stamp].close,
                                                  stop_loss=current_checker.stop_loss,
-                                                 max_risk=self.MAX_PERCENT_RISK * self.balance_book['USDT']['free'])
+                                                 max_risk=self.MAX_PERCENT_RISK * self.balance_book[self.COIN2]['free'])
                 current_trade['pattern'] = checker_name
                 current_status = PatternAction.HOLD
                 current_checker.status = PatternAction.HOLD
@@ -753,13 +757,15 @@ class BinanceTrend:
 
 
     def enter_trade(self, direction, price_in, stop_loss, max_risk):
+        max_risk = self.MAX_PERCENT_RISK * (self.balance_book[self.COIN2]['free'] +
+                                            self.balance_book[self.COIN1]['free'] * price_in)
         max_retracement = abs(price_in - stop_loss)
         position_size = max_risk / max_retracement
 
         self.query_coin_balances()
 
         if direction == PatternAction.GO_LONG:
-            current_balance = self.balance_book['USDT']['free']
+            current_balance = self.balance_book[self.COIN2]['free']
             if position_size * price_in < 0.9 * current_balance:
                 actual_risk = max_risk
             else:
@@ -771,7 +777,7 @@ class BinanceTrend:
             stop_loss_sale_price = stop_loss * 0.75
             # verify stop loss is less than price in
         elif direction == PatternAction.GO_SHORT:
-            current_balance = self.balance_book['BTC']['free']
+            current_balance = self.balance_book[self.COIN1]['free']
             if position_size < 0.9 * current_balance:
                 actual_risk = max_risk
             else:
@@ -795,8 +801,8 @@ class BinanceTrend:
                  'max_risk': max_risk,
                  'fee': {},
                  'max_retracement': max_retracement,
-                 'balance_in': {'BTC': self.balance_book['BTC']['free'],
-                                'USDT': self.balance_book['USDT']['free'],
+                 'balance_in': {self.COIN1: self.balance_book[self.COIN1]['free'],
+                                self.COIN2: self.balance_book[self.COIN2]['free'],
                                 'BNB': self.balance_book['BNB']['free']}}
         log_template = '{direction} price in: {price_in} max retrace: {retrace} size: {position} risk: {risk}'
         print(log_template.format(direction=direction,
@@ -831,21 +837,6 @@ class BinanceTrend:
 
 
     def exit_trade(self, trade, price_out):
-        # shrink/grow the position size so in the end we have approximately equal valued
-        # positions in BTC and USDT.
-        position_mid = 0.5 * (self.balance_book['BTC']['free'] + (self.balance_book['USDT']['free'] / price_out))
-        if trade['direction'] == PatternAction.GO_LONG:
-            direction = SIDE_SELL
-            position_out = self.balance_book['BTC']['free'] - position_mid
-        else:
-            direction = SIDE_BUY
-            position_out = position_mid - self.balance_book['BTC']['free']
-
-        if position_out > trade['position_size']:
-            # don't buy/sell more than we originally did, only less
-            position_out = trade['position_size']
-
-        trade['price_out_target'] = price_out
         # check stop order to see if we already exited the trade
         stop_order = self.client.get_order(symbol=self.PAIR1,
                                            orderId=trade['stop_loss_order']['orderId'])
@@ -870,6 +861,30 @@ class BinanceTrend:
             # TODO: put this in a try/except block on the off chance we cancel it right after
             # TODO:    it gets filled.
             stop_order = self.client.cancel_order(symbol=self.PAIR1, orderId=stop_order['orderId'])
+
+            # shrink/grow the position size so in the end we have approximately equal valued
+            # positions in coin1 and USDT.
+            coin1_balance = self.balance_book[self.COIN1]['free'] + self.balance_book[self.COIN1]['locked']
+            coin2_balance = self.balance_book[self.COIN2]['free'] + self.balance_book[self.COIN2]['locked']
+            print('Pre-exit balances: {} {}/{} {} {}/{}'.format(self.COIN1,
+                                                                self.balance_book[self.COIN1]['free'],
+                                                                self.balance_book[self.COIN1]['locked'],
+                                                                self.COIN2,
+                                                                self.balance_book[self.COIN2]['free'],
+                                                                self.balance_book[self.COIN2]['locked']))
+            position_mid = 0.5 * (coin1_balance + (coin2_balance / price_out))
+            if trade['direction'] == PatternAction.GO_LONG:
+                direction = SIDE_SELL
+                position_out = coin1_balance - position_mid
+            else:
+                direction = SIDE_BUY
+                position_out = position_mid - coin1_balance
+
+            if position_out > trade['position_size']:
+                # don't buy/sell more than we originally did, only less
+                position_out = trade['position_size']
+
+            print('exit size: {} price: {} {}'.format(position_out, price_out, direction))
             # if position_out is negative, this will return None
             exit_order = self.create_market_order(pair=self.PAIR1,
                                                   direction=direction,
@@ -907,8 +922,8 @@ class BinanceTrend:
 
         trade['R'] = trade['profit'] / trade['risk']
         self.query_coin_balances()
-        trade['balance_out'] = {'BTC': self.balance_book['BTC']['free'],
-                                'USDT': self.balance_book['USDT']['free'],
+        trade['balance_out'] = {self.COIN1: self.balance_book[self.COIN1]['free'],
+                                self.COIN2: self.balance_book[self.COIN2]['free'],
                                 'BNB': self.balance_book['BNB']['free']}
         log_template = '{direction} {price_in} {price_out} profit: {profit} risk: {risk} reward: {reward}'
         print(log_template.format(direction=trade['direction'],

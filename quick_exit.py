@@ -1,5 +1,5 @@
 import requests
-import datetime
+from datetime import datetime
 import traceback
 from binance import exceptions
 from bin_trend import BinanceTrend

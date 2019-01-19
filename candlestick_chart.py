@@ -15,6 +15,7 @@ ONE_DAY = 24 * ONE_HOUR
 
 ALPHA_10 = 2.0 / 11.0
 ALPHA_12 = 2.0 / 13.0
+ALPHA_15 = 2.0 / 16.0
 ALPHA_20 = 2.0 / 21.0
 ALPHA_26 = 2.0 / 27.0
 ALPHA_50 = 2.0 / 51.0
@@ -23,7 +24,7 @@ ALPHA_200 = 2.0 / 201.0
 
 ATR_LENGTH = 14
 
-EMA_PERIODS = [5, 10, 12, 20, 25, 26, 50, 100, 200]
+EMA_PERIODS = [5, 10, 12, 15, 20, 25, 26, 50, 100, 200]
 
 # binance websocket keys
 START_TIME = 't'
@@ -292,11 +293,6 @@ class CandleStickChart:
         for i in range(range_length, len(chart)):
             chart[i].metric[min_name] = min(range_min[i-(range_length-1):i+1])
             chart[i].metric[max_name] = max(range_max[i-(range_length-1):i+1])
-
-            # print('time: ', datetime.utcfromtimestamp(chart[i].time_index).isoformat(), ' ', chart[i].close, ' ', chart[i].metric[min_name], ' ', chart[i].metric[max_name])
-            # print('range_max: ', range_max[i-range_length:i+1])
-            # print('old max: ', old_max)
-            # print('current: ', current_max)
 
     def set_rsi(self, chart, range_length):
         def calc_rsi(avg_gain, avg_loss):

@@ -59,18 +59,21 @@ class BinanceTrend:
     # pair priorities USDT always comes last in a pair.  BTC always comes after all
     # coins other than USDT.  ETH comes after all coins other than USDT and BTC.
     # also, pair should go COIN1/COIN3, COIN2/COIN1, COIN2/COIN3
-    COIN1 = 'BTC'
+    COIN1 = 'ETH'
     COIN2 = 'USDT'
-    PAIR1 = 'BTCUSDT'
+    PAIR1 = COIN1 + COIN2 #'BTCUSDT'
 
     QUANTITY_PRECISION = {'BTCUSDT': 6}
 
     FEE = 0.00075
+    MAX_RISK = 0.02
 
     balance_book = {'timestamp': None,
                     'locked': False,
                     'BTC': {'free': 0.3, 'locked': 0.0},
                     'ETH': {'free': 8.0, 'locked': 0.0},
+                    'LTC': {'free': 30.0, 'locked': 0.0},
+                    'BNB': {'free': 170.0, 'locked': 0.0},
                     'USDT': {'free': 1000.0, 'locked': 0.0}}
 
     interval = Client.KLINE_INTERVAL_15MINUTE
@@ -116,7 +119,7 @@ class BinanceTrend:
 
 
     def update_historical_candlesticks(self):
-        klines = self.client.get_historical_klines(self.PAIR1, self.interval, "15 months ago UTC")
+        klines = self.client.get_historical_klines(self.PAIR1, self.interval, "12 months ago UTC")
         for candlestick in klines:
             start_time = int(candlestick[0])
             if start_time not in self.candlesticks[self.PAIR1].chart_data:
@@ -174,44 +177,19 @@ class BinanceTrend:
 
     def check_trend(self):
         start_time = datetime.utcnow()
-        #time.sleep(30)
-
-        # old_order = {'symbol': 'BTCUSDT',
-        #              'orderId': 213128010,
-        #              'clientOrderId': 'PzjWIQQ3vObrKzuWCW8DHx',
-        #              'price': '2972.11000000',
-        #              'origQty': '0.13806400',
-        #              'executedQty': '0.13806400',
-        #              'cummulativeQuoteQty': '547.00956800',
-        #              'status': 'FILLED',
-        #              'timeInForce': 'GTC',
-        #              'type': 'STOP_LOSS_LIMIT',
-        #              'side': 'SELL',
-        #              'stopPrice': '3962.81000000',
-        #              'icebergQty': '0.00000000',
-        #              'time': 1545397201571,
-        #              'updateTime': 1545405034596,
-        #              'isWorking': True,
-        #              'original_price': '2972.11000000',
-        #              'fills': []}
-        #
-        # filled_order = self.find_trade_for_order(old_order)
-        # print('filled order: {}'.format(filled_order))
-        # exit(0)
 
         # grab all historical data to initialize metrics
         self.update_historical_candlesticks()
 
         chart = self.candlesticks[self.PAIR1]
         checker_list = dict()
-        checker_list['BullCryptoMA'] = BullCryptoMovingAverageChecker(chart.chart_data)
-        checker_list['BearCryptoMA'] = BearCryptoMovingAverageChecker(chart.chart_data)
+        checker_list['BullCryptoMA'] = BullCryptoMovingAverageCheckerTest(chart.chart_data)
+        checker_list['BearCryptoMA'] = BearCryptoMovingAverageCheckerTest(chart.chart_data)
         # checker_list['PumpReversion'] = PumpReversion(chart.chart_data)
         current_status = PatternAction.WAIT
         current_checker = None
         checker_name = None
         current_trade = None
-        MAX_RISK = 10
         stats = {}
         win_count = 0
         win_total = 0
@@ -268,7 +246,7 @@ class BinanceTrend:
                 current_trade = self.enter_trade(direction=proposed_action,
                                                  price_in=chart.chart_data[time_stamp].close,
                                                  stop_loss=current_checker.stop_loss,
-                                                 max_risk=MAX_RISK)
+                                                 max_risk=self.MAX_RISK * self.balance_book['USDT']['free'])
                 current_trade['pattern'] = checker_name
                 current_status = PatternAction.HOLD
                 current_checker.status = PatternAction.HOLD
@@ -315,7 +293,8 @@ class BinanceTrend:
 
     def enter_trade(self, direction, price_in, stop_loss, max_risk):
         print('enter balance: {:.4f} {:.4f}'.format(self.balance_book['USDT']['free'], self.balance_book[self.COIN1]['free']))
-        max_risk = 0.01 * self.balance_book['USDT']['free']
+        #max_risk = self.MAX_RISK * (self.balance_book['USDT']['free'] + self.balance_book[self.COIN1]['free'] * price_in)
+        print('max risk: {} {}'.format(max_risk, (self.balance_book['USDT']['free'] + self.balance_book[self.COIN1]['free'] * price_in)))
         max_retracement = abs(price_in - stop_loss)
         position_size = max_risk / max_retracement
 

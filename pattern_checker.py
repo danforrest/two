@@ -105,8 +105,8 @@ class BullCryptoMovingAverageChecker(PatternChecker):
         self.status = PatternAction.GO_LONG
         # self.stop_loss = bucket.metric['ema100']
         self.stop_loss = min(bucket.metric['ema100'], bucket.metric['ema200'])
-        # if bucket.close - bucket.metric['atr'] < bucket.metric['ema100']:
-        #     self.stop_loss = bucket.close - bucket.metric['atr']
+        if bucket.close - 4*bucket.metric['atr'] < self.stop_loss:
+            self.stop_loss = bucket.close - 4*bucket.metric['atr']
         return PatternAction.GO_LONG, {'price': bucket.close,
                                        'stop': self.stop_loss,
                                        }
@@ -218,8 +218,8 @@ class BearCryptoMovingAverageChecker(PatternChecker):
         self.status = PatternAction.GO_SHORT
         # self.stop_loss = bucket.metric['ema100']
         self.stop_loss = max(bucket.metric['ema100'], bucket.metric['ema200'])
-        # if bucket.close + bucket.metric['atr'] > bucket.metric['ema100']:
-        #     self.stop_loss = bucket.close + bucket.metric['atr']
+        if bucket.close + 4*bucket.metric['atr'] > self.stop_loss:
+            self.stop_loss = bucket.close + 4*bucket.metric['atr']
         return PatternAction.GO_SHORT, {'price': bucket.close,
                                         'stop': self.stop_loss,
                                        }

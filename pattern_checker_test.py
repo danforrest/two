@@ -516,9 +516,14 @@ class BullCryptoMovingAverageCheckerTest(PatternChecker):
             print(time_string, 'ema50_delta: ', bucket.metric['ema50_delta'])
             return PatternAction.WAIT, None
 
-        # 25 EMA is pointing higher
-        if 'ema25_delta' in bucket.metric and bucket.metric['ema25_delta'] <= 0:
-            print(time_string, 'ema25_delta: ', bucket.metric['ema25_delta'])
+        # # 25 EMA is pointing higher
+        # if 'ema25_delta' in bucket.metric and bucket.metric['ema25_delta'] <= 0:
+        #     print(time_string, 'ema25_delta: ', bucket.metric['ema25_delta'])
+        #     return PatternAction.WAIT, None
+
+        # 15 EMA is pointing higher
+        if 'ema15_delta' in bucket.metric and bucket.metric['ema15_delta'] <= 0:
+            print(time_string, 'ema15_delta: ', bucket.metric['ema15_delta'])
             return PatternAction.WAIT, None
 
         # 5 EMA is pointing higher
@@ -531,19 +536,34 @@ class BullCryptoMovingAverageCheckerTest(PatternChecker):
             print(time_string, 'ema50: ', bucket.metric['ema50'], bucket.metric['ema100'])
             return PatternAction.WAIT, None
 
-        # 25 EMA is above 50 EMA
-        if bucket.metric['ema25'] <= bucket.metric['ema50']:
-            print(time_string, 'ema25: ', bucket.metric['ema25'], bucket.metric['ema50'])
+        # # 25 EMA is above 50 EMA
+        # if bucket.metric['ema25'] <= bucket.metric['ema50']:
+        #     print(time_string, 'ema25: ', bucket.metric['ema25'], bucket.metric['ema50'])
+        #     return PatternAction.WAIT, None
+
+        # 15 EMA is above 50 EMA
+        if bucket.metric['ema15'] <= bucket.metric['ema50']:
+            print(time_string, 'ema15: ', bucket.metric['ema15'], bucket.metric['ema50'])
             return PatternAction.WAIT, None
 
-        # 5 EMA is above 25 EMA
-        if bucket.metric['ema5'] <= bucket.metric['ema25']:
-            print(time_string, 'ema5: ', bucket.metric['ema5'], bucket.metric['ema25'])
+        # # 5 EMA is above 25 EMA
+        # if bucket.metric['ema5'] <= bucket.metric['ema25']:
+        #     print(time_string, 'ema5: ', bucket.metric['ema5'], bucket.metric['ema25'])
+        #     return PatternAction.WAIT, None
+
+        # 5 EMA is above 15 EMA
+        if bucket.metric['ema5'] <= bucket.metric['ema15']:
+            print(time_string, 'ema5: ', bucket.metric['ema5'], bucket.metric['ema15'])
             return PatternAction.WAIT, None
 
-        # price open is above 25 EMA
-        if bucket.open <= bucket.metric['ema25']:
-            print(time_string, 'open: ', bucket.open, bucket.metric['ema25'])
+        # # price open is above 25 EMA
+        # if bucket.open <= bucket.metric['ema25']:
+        #     print(time_string, 'open: ', bucket.open, bucket.metric['ema25'])
+        #     return PatternAction.WAIT, None
+
+        # price open is above 15 EMA
+        if bucket.open <= bucket.metric['ema15']:
+            print(time_string, 'open: ', bucket.open, bucket.metric['ema15'])
             return PatternAction.WAIT, None
 
         # price close is above 5 EMA
@@ -565,18 +585,20 @@ class BullCryptoMovingAverageCheckerTest(PatternChecker):
         print('ema100 delta {}'.format(bucket.metric['ema100_delta']))
         print('ema50 delta {}'.format(bucket.metric['ema50_delta']))
         print('ema25 delta {}'.format(bucket.metric['ema25_delta']))
+        print('ema15 delta {}'.format(bucket.metric['ema15_delta']))
         print('ema5 delta {}'.format(bucket.metric['ema5_delta']))
         print('ema100 {}'.format(bucket.metric['ema100']))
         print('ema50 {}'.format(bucket.metric['ema50']))
         print('ema25 {}'.format(bucket.metric['ema25']))
+        print('ema15 {}'.format(bucket.metric['ema15']))
         print('ema5 {}'.format(bucket.metric['ema5']))
         print('open {}'.format(bucket.open))
         print('close {}'.format(bucket.close))
         print('atr {}'.format(bucket.metric['atr']))
         self.status = PatternAction.GO_LONG
         self.stop_loss = min(bucket.metric['ema100'], bucket.metric['ema200'])
-        # if bucket.close - bucket.metric['atr'] < bucket.metric['ema100']:
-        #     self.stop_loss = bucket.close - bucket.metric['atr']
+        if bucket.close - 6*bucket.metric['atr'] < self.stop_loss:
+            self.stop_loss = bucket.close - 6*bucket.metric['atr']
         return PatternAction.GO_LONG, {'price': bucket.close,
                                        'stop': self.stop_loss,
                                        }
@@ -627,9 +649,14 @@ class BearCryptoMovingAverageCheckerTest(PatternChecker):
             print(time_string, 'ema50_delta: ', bucket.metric['ema50_delta'])
             return PatternAction.WAIT, None
 
-        # 25 EMA is pointing lower
-        if 'ema25_delta' in bucket.metric and bucket.metric['ema25_delta'] >= 0:
-            print(time_string, 'ema25_delta: ', bucket.metric['ema25_delta'])
+        # # 25 EMA is pointing lower
+        # if 'ema25_delta' in bucket.metric and bucket.metric['ema25_delta'] >= 0:
+        #     print(time_string, 'ema25_delta: ', bucket.metric['ema25_delta'])
+        #     return PatternAction.WAIT, None
+
+        # 15 EMA is pointing lower
+        if 'ema15_delta' in bucket.metric and bucket.metric['ema15_delta'] >= 0:
+            print(time_string, 'ema15_delta: ', bucket.metric['ema15_delta'])
             return PatternAction.WAIT, None
 
         # 5 EMA is pointing lower
@@ -647,14 +674,29 @@ class BearCryptoMovingAverageCheckerTest(PatternChecker):
             print(time_string, 'ema25: ', bucket.metric['ema25'], bucket.metric['ema50'])
             return PatternAction.WAIT, None
 
-        # 5 EMA is below 25 EMA
-        if bucket.metric['ema5'] >= bucket.metric['ema25']:
-            print(time_string, 'ema5: ', bucket.metric['ema5'], bucket.metric['ema25'])
+        # 15 EMA is below 50 EMA
+        if bucket.metric['ema15'] >= bucket.metric['ema50']:
+            print(time_string, 'ema15: ', bucket.metric['ema15'], bucket.metric['ema50'])
             return PatternAction.WAIT, None
 
-        # price open is below 25 EMA
-        if bucket.open >= bucket.metric['ema25']:
-            print(time_string, 'open: ', bucket.open, bucket.metric['ema25'])
+        # # 5 EMA is below 25 EMA
+        # if bucket.metric['ema5'] >= bucket.metric['ema25']:
+        #     print(time_string, 'ema5: ', bucket.metric['ema5'], bucket.metric['ema25'])
+        #     return PatternAction.WAIT, None
+
+        # 5 EMA is below 15 EMA
+        if bucket.metric['ema5'] >= bucket.metric['ema15']:
+            print(time_string, 'ema5: ', bucket.metric['ema5'], bucket.metric['ema15'])
+            return PatternAction.WAIT, None
+
+        # # price open is below 25 EMA
+        # if bucket.open >= bucket.metric['ema25']:
+        #     print(time_string, 'open: ', bucket.open, bucket.metric['ema25'])
+        #     return PatternAction.WAIT, None
+
+        # price open is below 15 EMA
+        if bucket.open >= bucket.metric['ema15']:
+            print(time_string, 'open: ', bucket.open, bucket.metric['ema15'])
             return PatternAction.WAIT, None
 
         # price close is below 5 EMA
@@ -676,19 +718,21 @@ class BearCryptoMovingAverageCheckerTest(PatternChecker):
         print('ema100 delta {}'.format(bucket.metric['ema100_delta']))
         print('ema50 delta {}'.format(bucket.metric['ema50_delta']))
         print('ema25 delta {}'.format(bucket.metric['ema25_delta']))
+        print('ema15 delta {}'.format(bucket.metric['ema15_delta']))
         print('ema5 delta {}'.format(bucket.metric['ema5_delta']))
         print('ema200 {}'.format(bucket.metric['ema200']))
         print('ema100 {}'.format(bucket.metric['ema100']))
         print('ema50 {}'.format(bucket.metric['ema50']))
         print('ema25 {}'.format(bucket.metric['ema25']))
+        print('ema15 {}'.format(bucket.metric['ema15']))
         print('ema5 {}'.format(bucket.metric['ema5']))
         print('open {}'.format(bucket.open))
         print('close {}'.format(bucket.close))
         print('atr {}'.format(bucket.metric['atr']))
         self.status = PatternAction.GO_SHORT
         self.stop_loss = max(bucket.metric['ema100'], bucket.metric['ema200'])
-        # if bucket.close - bucket.metric['atr'] > bucket.metric['ema100']:
-        #     self.stop_loss = bucket.close - bucket.metric['atr']
+        if bucket.close + 6*bucket.metric['atr'] > self.stop_loss:
+            self.stop_loss = bucket.close + 6*bucket.metric['atr']
         return PatternAction.GO_SHORT, {'price': bucket.close,
                                         'stop': self.stop_loss,
                                        }
