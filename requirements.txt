@@ -11,4 +11,4 @@ python-binance
 gdax
 krakenex
 python-kucoin
-
+python-dateutil>=2.8.0

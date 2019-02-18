@@ -516,15 +516,15 @@ class BullCryptoMovingAverageCheckerTest(PatternChecker):
             print(time_string, 'ema50_delta: ', bucket.metric['ema50_delta'])
             return PatternAction.WAIT, None
 
-        # # 25 EMA is pointing higher
-        # if 'ema25_delta' in bucket.metric and bucket.metric['ema25_delta'] <= 0:
-        #     print(time_string, 'ema25_delta: ', bucket.metric['ema25_delta'])
-        #     return PatternAction.WAIT, None
-
-        # 15 EMA is pointing higher
-        if 'ema15_delta' in bucket.metric and bucket.metric['ema15_delta'] <= 0:
-            print(time_string, 'ema15_delta: ', bucket.metric['ema15_delta'])
+        # 25 EMA is pointing higher
+        if 'ema25_delta' in bucket.metric and bucket.metric['ema25_delta'] <= 0:
+            print(time_string, 'ema25_delta: ', bucket.metric['ema25_delta'])
             return PatternAction.WAIT, None
+
+        # # 15 EMA is pointing higher
+        # if 'ema15_delta' in bucket.metric and bucket.metric['ema15_delta'] <= 0:
+        #     print(time_string, 'ema15_delta: ', bucket.metric['ema15_delta'])
+        #     return PatternAction.WAIT, None
 
         # 5 EMA is pointing higher
         if 'ema5_delta' in bucket.metric and bucket.metric['ema5_delta'] <= 0:
@@ -536,35 +536,35 @@ class BullCryptoMovingAverageCheckerTest(PatternChecker):
             print(time_string, 'ema50: ', bucket.metric['ema50'], bucket.metric['ema100'])
             return PatternAction.WAIT, None
 
-        # # 25 EMA is above 50 EMA
-        # if bucket.metric['ema25'] <= bucket.metric['ema50']:
-        #     print(time_string, 'ema25: ', bucket.metric['ema25'], bucket.metric['ema50'])
-        #     return PatternAction.WAIT, None
-
-        # 15 EMA is above 50 EMA
-        if bucket.metric['ema15'] <= bucket.metric['ema50']:
-            print(time_string, 'ema15: ', bucket.metric['ema15'], bucket.metric['ema50'])
+        # 25 EMA is above 50 EMA
+        if bucket.metric['ema25'] <= bucket.metric['ema50']:
+            print(time_string, 'ema25: ', bucket.metric['ema25'], bucket.metric['ema50'])
             return PatternAction.WAIT, None
 
-        # # 5 EMA is above 25 EMA
-        # if bucket.metric['ema5'] <= bucket.metric['ema25']:
-        #     print(time_string, 'ema5: ', bucket.metric['ema5'], bucket.metric['ema25'])
+        # # 15 EMA is above 50 EMA
+        # if bucket.metric['ema15'] <= bucket.metric['ema50']:
+        #     print(time_string, 'ema15: ', bucket.metric['ema15'], bucket.metric['ema50'])
         #     return PatternAction.WAIT, None
 
-        # 5 EMA is above 15 EMA
-        if bucket.metric['ema5'] <= bucket.metric['ema15']:
-            print(time_string, 'ema5: ', bucket.metric['ema5'], bucket.metric['ema15'])
+        # 5 EMA is above 25 EMA
+        if bucket.metric['ema5'] <= bucket.metric['ema25']:
+            print(time_string, 'ema5: ', bucket.metric['ema5'], bucket.metric['ema25'])
             return PatternAction.WAIT, None
 
-        # # price open is above 25 EMA
-        # if bucket.open <= bucket.metric['ema25']:
-        #     print(time_string, 'open: ', bucket.open, bucket.metric['ema25'])
+        # # 5 EMA is above 15 EMA
+        # if bucket.metric['ema5'] <= bucket.metric['ema15']:
+        #     print(time_string, 'ema5: ', bucket.metric['ema5'], bucket.metric['ema15'])
         #     return PatternAction.WAIT, None
 
-        # price open is above 15 EMA
-        if bucket.open <= bucket.metric['ema15']:
-            print(time_string, 'open: ', bucket.open, bucket.metric['ema15'])
+        # price open is above 25 EMA
+        if bucket.open <= bucket.metric['ema25']:
+            print(time_string, 'open: ', bucket.open, bucket.metric['ema25'])
             return PatternAction.WAIT, None
+
+        # # price open is above 15 EMA
+        # if bucket.open <= bucket.metric['ema15']:
+        #     print(time_string, 'open: ', bucket.open, bucket.metric['ema15'])
+        #     return PatternAction.WAIT, None
 
         # price close is above 5 EMA
         if bucket.close <= bucket.metric['ema5']:
@@ -597,8 +597,8 @@ class BullCryptoMovingAverageCheckerTest(PatternChecker):
         print('atr {}'.format(bucket.metric['atr']))
         self.status = PatternAction.GO_LONG
         self.stop_loss = min(bucket.metric['ema100'], bucket.metric['ema200'])
-        if bucket.close - 6*bucket.metric['atr'] < self.stop_loss:
-            self.stop_loss = bucket.close - 6*bucket.metric['atr']
+        if bucket.close - 4*bucket.metric['atr'] < self.stop_loss:
+            self.stop_loss = bucket.close - 4*bucket.metric['atr']
         return PatternAction.GO_LONG, {'price': bucket.close,
                                        'stop': self.stop_loss,
                                        }
@@ -621,7 +621,7 @@ class BullCryptoMovingAverageCheckerTest(PatternChecker):
         if bucket.close < self.soft_stop:
             # print('Selling due to stop loss')
             self.status = PatternAction.EXIT_TRADE
-            return PatternAction.EXIT_TRADE, self.soft_stop
+            return PatternAction.EXIT_TRADE, bucket.close
 
         return PatternAction.HOLD, None
 
@@ -649,15 +649,15 @@ class BearCryptoMovingAverageCheckerTest(PatternChecker):
             print(time_string, 'ema50_delta: ', bucket.metric['ema50_delta'])
             return PatternAction.WAIT, None
 
-        # # 25 EMA is pointing lower
-        # if 'ema25_delta' in bucket.metric and bucket.metric['ema25_delta'] >= 0:
-        #     print(time_string, 'ema25_delta: ', bucket.metric['ema25_delta'])
-        #     return PatternAction.WAIT, None
-
-        # 15 EMA is pointing lower
-        if 'ema15_delta' in bucket.metric and bucket.metric['ema15_delta'] >= 0:
-            print(time_string, 'ema15_delta: ', bucket.metric['ema15_delta'])
+        # 25 EMA is pointing lower
+        if 'ema25_delta' in bucket.metric and bucket.metric['ema25_delta'] >= 0:
+            print(time_string, 'ema25_delta: ', bucket.metric['ema25_delta'])
             return PatternAction.WAIT, None
+
+        # # 15 EMA is pointing lower
+        # if 'ema15_delta' in bucket.metric and bucket.metric['ema15_delta'] >= 0:
+        #     print(time_string, 'ema15_delta: ', bucket.metric['ema15_delta'])
+        #     return PatternAction.WAIT, None
 
         # 5 EMA is pointing lower
         if 'ema5_delta' in bucket.metric and bucket.metric['ema5_delta'] >= 0:
@@ -674,30 +674,30 @@ class BearCryptoMovingAverageCheckerTest(PatternChecker):
             print(time_string, 'ema25: ', bucket.metric['ema25'], bucket.metric['ema50'])
             return PatternAction.WAIT, None
 
-        # 15 EMA is below 50 EMA
-        if bucket.metric['ema15'] >= bucket.metric['ema50']:
-            print(time_string, 'ema15: ', bucket.metric['ema15'], bucket.metric['ema50'])
-            return PatternAction.WAIT, None
-
-        # # 5 EMA is below 25 EMA
-        # if bucket.metric['ema5'] >= bucket.metric['ema25']:
-        #     print(time_string, 'ema5: ', bucket.metric['ema5'], bucket.metric['ema25'])
+        # # 15 EMA is below 50 EMA
+        # if bucket.metric['ema15'] >= bucket.metric['ema50']:
+        #     print(time_string, 'ema15: ', bucket.metric['ema15'], bucket.metric['ema50'])
         #     return PatternAction.WAIT, None
 
-        # 5 EMA is below 15 EMA
-        if bucket.metric['ema5'] >= bucket.metric['ema15']:
-            print(time_string, 'ema5: ', bucket.metric['ema5'], bucket.metric['ema15'])
+        # 5 EMA is below 25 EMA
+        if bucket.metric['ema5'] >= bucket.metric['ema25']:
+            print(time_string, 'ema5: ', bucket.metric['ema5'], bucket.metric['ema25'])
             return PatternAction.WAIT, None
 
-        # # price open is below 25 EMA
-        # if bucket.open >= bucket.metric['ema25']:
-        #     print(time_string, 'open: ', bucket.open, bucket.metric['ema25'])
+        # # 5 EMA is below 15 EMA
+        # if bucket.metric['ema5'] >= bucket.metric['ema15']:
+        #     print(time_string, 'ema5: ', bucket.metric['ema5'], bucket.metric['ema15'])
         #     return PatternAction.WAIT, None
 
-        # price open is below 15 EMA
-        if bucket.open >= bucket.metric['ema15']:
-            print(time_string, 'open: ', bucket.open, bucket.metric['ema15'])
+        # price open is below 25 EMA
+        if bucket.open >= bucket.metric['ema25']:
+            print(time_string, 'open: ', bucket.open, bucket.metric['ema25'])
             return PatternAction.WAIT, None
+
+        # # price open is below 15 EMA
+        # if bucket.open >= bucket.metric['ema15']:
+        #     print(time_string, 'open: ', bucket.open, bucket.metric['ema15'])
+        #     return PatternAction.WAIT, None
 
         # price close is below 5 EMA
         if bucket.close >= bucket.metric['ema5']:
@@ -731,8 +731,8 @@ class BearCryptoMovingAverageCheckerTest(PatternChecker):
         print('atr {}'.format(bucket.metric['atr']))
         self.status = PatternAction.GO_SHORT
         self.stop_loss = max(bucket.metric['ema100'], bucket.metric['ema200'])
-        if bucket.close + 6*bucket.metric['atr'] > self.stop_loss:
-            self.stop_loss = bucket.close + 6*bucket.metric['atr']
+        if bucket.close + 4*bucket.metric['atr'] > self.stop_loss:
+            self.stop_loss = bucket.close + 4*bucket.metric['atr']
         return PatternAction.GO_SHORT, {'price': bucket.close,
                                         'stop': self.stop_loss,
                                        }
@@ -756,147 +756,267 @@ class BearCryptoMovingAverageCheckerTest(PatternChecker):
         if bucket.close > self.soft_stop:
             # print('Selling due to stop loss')
             self.status = PatternAction.EXIT_TRADE
-            return PatternAction.EXIT_TRADE, self.soft_stop
+            return PatternAction.EXIT_TRADE, bucket.close
 
         return PatternAction.HOLD, None
 
 
 class PumpReversion(PatternChecker):
+    open_positions = []
     status = PatternAction.WAIT
     stop_loss = 0
     low_point = None
     high_point = None
-    retest_wait = None
-    entry_price = None
-    exit_price = None
-    exit_time = None
     THRESHOLD = 1.01
-    MAX_TIME = timedelta(days=2.0)
+    MAX_TIME = timedelta(days=3.0)
     RETEST_TIME = timedelta(minutes=20.0)
     current_stage = None
 
     PRE_PUMP = 'PRE_PUMP'
     PUMP = 'PUMP'
     POST_PUMP = 'POST_PUMP'
-    RETEST_HIGH = 'RETEST_HIGH'
-    UNWIND = 'UNWIND'
+    IN_TRADE = 'IN_TRADE'
 
     def check_entry(self, index):
         if self.status not in [PatternAction.WAIT]:
             return self.status, None
 
+        # If gain from last bear candle close to the final bull candle close is greater than THRESHOLD percent.
+        # If the price re-tests the close of the final bull candle within RETEST_TIME minutes
+        # Go short
+        # Exit when the price hits the mid way point of the bull run
+        # Bail if the target isn't hit within MAX_TIME days
+
+        # TODO: See about performance of entering on the first bearish candle if the close is still greater
+        # TODO: than the threshold
+
+        # TODO: Test various exit strategies.  Set Stop Loss at specific price.  Wait till price closes
+        # TODO: below target then sell immediately.  Once price drops below target, sell on first bull
+        # TODO: candle.  Set Stop Loss at full retrace mark, but also exit on first bull after price
+        # TODO: drops below target.
+
         self.stop_loss = 0
         bucket = self.chart[index]
         time_string = datetime.utcfromtimestamp(index/1000).isoformat()
 
+        if self.current_stage is None:
+            self.low_point = min(bucket.open, bucket.close)
+            self.current_stage = self.PRE_PUMP
+
         if self.current_stage == self.PRE_PUMP:
-            if bucket.close < bucket.open:
+            if bucket.close <= bucket.open:
+                # price is still dropping, we're not in a bull run yet
                 self.low_point = bucket.close
                 return PatternAction.WAIT, None
             else:
+                # a bull run starts immediately after a bear candle
                 self.current_stage = self.PUMP
 
         if self.current_stage == self.PUMP:
             if bucket.open <= bucket.close:
+                # price is still going up, we're not done with the bull run yet
                 self.high_point = bucket.close
                 return PatternAction.WAIT, None
             else:
+                # the price peaked.
                 if self.high_point / self.low_point < self.THRESHOLD:
                     # didn't pump enough, reset
                     self.low_point = bucket.close
                     self.high_point = None
-                    self.retest_wait = None
                     self.current_stage = self.PRE_PUMP
                     return PatternAction.WAIT, None
                 else:
-                    self.current_stage = self.POST_PUMP
-                    self.retest_wait = datetime.utcnow() + self.RETEST_TIME
-                    self.entry_price = self.high_point
-                    self.exit_price = (self.high_point + self.low_point) / 2.0
+                    new_opportunity = {'low_point': self.low_point,
+                                       'high_point': self.high_point,
+                                       'retest_wait': datetime.utcnow() + self.RETEST_TIME,
+                                       'max_open_time': datetime.utcnow() + self.MAX_TIME,
+                                       'entry_price': self.high_point,
+                                       'exit_price': (self.high_point + self.low_point) / 2.0,
+                                       'stage': self.POST_PUMP
+                                       }
+                    self.open_positions.append(new_opportunity)
+                    self.current_stage = self.PRE_PUMP
+                    # reset high/low point in case we start a second pump really soon
                     self.low_point = bucket.close
                     self.high_point = None
-
-        if self.current_stage == self.POST_PUMP:
-            if bucket.high > self.entry_price:
-                # going short!
-                self.current_stage = self.UNWIND
-                self.stop_loss = self.exit_price
-                self.status = PatternAction.GO_SHORT
-                self.exit_time = datetime.utcnow() + self.MAX_TIME
-
-                return PatternAction.GO_SHORT, {'price': bucket.close,
-                                                'stop': self.stop_loss
-                                                }
-            elif datetime.utcnow() > self.retest_wait:
-                # took too long, going back to pre pump stage
-                if bucket.close < bucket.open:
-                    self.low_point = bucket.close
-                self.current_stage = self.PRE_PUMP
-                self.retest_wait = None
-                self.entry_price = None
-                self.exit_price = None
-                return PatternAction.WAIT, None
-
-        if self.current_stage == self.UNWIND:
-            if bucket.close < bucket.open:
-                self.low_point = bucket.close
-            else:
-                self.low_point = None
+                    return PatternAction.GO_SHORT, new_opportunity
 
         return PatternAction.WAIT, None
-
-        # find the low point before the pump
-        if bucket.close < bucket.open and not self.high_point:
-            self.low_point = bucket.close
-            return PatternAction.WAIT, None
-
-        # find the top of the pump
-        if bucket.open <= bucket.close and self.low_point:
-            if not self.retest_wait:
-                # this is the first time hitting the top of the pump, just mark it and wait
-                # till we re-test the high point.
-                self.high_point = bucket.close
-                return PatternAction.WAIT, None
-            elif datetime.utcnow() < self.retest_wait:
-                # we just hit the top of the pump a second time.  go short
-                self.status = PatternAction.GO_SHORT
-                self.stop_loss = (self.high_point + self.low_point) / 2
-                self.exit_time = datetime.utcnow() + self.MAX_TIME
-
-                return PatternAction.GO_SHORT, {'price': bucket.close,
-                                                'stop': self.stop_loss
-                                                }
-            else:
-                self.low_point = None
-                self.high_point = None
-                self.retest_wait = None
-
-        # we just peaked (1+ candle retracement).
-        if self.high_point / self.low_point <= self.THRESHOLD:
-            self.low_point = None
-            self.high_point = None
-            self.retest_wait = None
-            return PatternAction.WAIT, None
-
-        return PatternAction.WAIT, None
-
-
 
 
     def check_exit(self, index):
 
-        #### TODO: Exit immediately or drop stop loss to a break even/slight win if lower time frame
-        #### TODO  jumps fast against you
+        # TODO: Exit immediately or drop stop loss to a break even/slight win if lower time frame
+        # TODO  jumps fast against you
 
         if self.status not in [PatternAction.HOLD]:
             return self.status, None
 
         bucket = self.chart[index]
+        trades_to_exit = []
+        remaining_trades = []
 
-        if bucket.close > self.stop_loss:
-            print('Selling price target hit')
-            self.status = PatternAction.EXIT_TRADE
-            return PatternAction.EXIT_TRADE, bucket.close
+        for trade in self.open_positions:
+            if trade['stage'] == self.IN_TRADE:
+                if bucket.low < trade['exit_price']:
+                    trades_to_exit.append(trade)
+                elif trade['max_open_time'] < datetime.utcnow():
+                    trades_to_exit.append(trade)
+                else:
+                    remaining_trades.append(trade)
+            elif trade['stage'] == self.POST_PUMP:
+                if trade['retest_wait'] > datetime.utcnow():
+                    # keep the trade in case it re-tests the high point of the pump
+                    remaining_trades.append(trade)
+
+        self.open_positions = remaining_trades
+
+        if trades_to_exit:
+            return PatternAction.EXIT_TRADE, trades_to_exit
+
+        return PatternAction.HOLD, None
+
+
+class SimplePumpReversion(PatternChecker):
+    open_positions = {}
+    BUY_THRESHOLD = 1.05
+    SELL_THRESHOLD = 0.50
+    STOP_THRESHOLD = 0.95
+    MAX_TIME = timedelta(days=5.0)
+
+    def check_entry(self, index):
+        bucket = self.chart[index]
+        time_string = datetime.utcfromtimestamp(index/1000).isoformat()
+
+        # Entry:
+        # If:
+        # - Current candle is Bearish *AND*
+        # - Current candle drop greater than BUY_THRESHOLD percent
+        # Then:
+        # - Buy one position
+        # Exit:
+        # If:
+        # - Price closes above SELL_THRESHOLD percent of current candle *OR*
+        # - Price drops below STOP_PERCENT percent of entry price *OR*
+        # - Position has been open for MAX_TIME days
+
+        # Candle is bearish
+        if bucket.close >= bucket.open:
+            return PatternAction.WAIT, None
+
+        # Candle drop is greater than threshold
+        if bucket.open / bucket.close < self.BUY_THRESHOLD:
+            return  PatternAction.WAIT, None
+
+        new_opportunity = {'target_entry_price': bucket.close,
+                           'target_exit_price': (bucket.open - bucket.close) * self.SELL_THRESHOLD + bucket.close,
+                           'stop_loss': bucket.close * self.STOP_THRESHOLD,
+                           'max_open_time': datetime.utcnow() + self.MAX_TIME
+                           }
+        print('New Opportunity: {entry} {exit} {stop} {end}'.format(entry=new_opportunity['target_entry_price'],
+                                                                    exit=new_opportunity['target_exit_price'],
+                                                                    stop=new_opportunity['stop_loss'],
+                                                                    end=new_opportunity['max_open_time']))
+        self.open_positions[index] = new_opportunity
+        return PatternAction.GO_LONG, new_opportunity
+
+
+    def check_exit(self, index):
+
+        # Exit:
+        # If:
+        # - Price closes above SELL_THRESHOLD percent of current candle *OR*
+        # - Price drops below STOP_THRESHOLD percent of entry price *OR*
+        # - Position has been open for MAX_TIME days
+
+        bucket = self.chart[index]
+        trades_to_exit = {}
+        remaining_trades = {}
+
+        for index, trade in self.open_positions.items():
+            if bucket.close > trade['target_exit_price']:
+                trade['actual_exit_price'] = bucket.close
+                trades_to_exit[index] = trade
+            elif bucket.close < trade['stop_loss']:
+                trade['actual_exit_price'] = bucket.close
+                trades_to_exit[index] = trade
+            elif trade['max_open_time'] < datetime.utcnow():
+                trade['actual_exit_price'] = bucket.close
+                trades_to_exit[index] = trade
+            else:
+                remaining_trades[index] = trade
+
+        self.open_positions = remaining_trades
+
+        if trades_to_exit:
+            return PatternAction.EXIT_TRADE, trades_to_exit
+
+        return PatternAction.HOLD, None
+
+
+class SimpleMeanReversion(PatternChecker):
+    previous_candle_bullish = False
+    open_positions = {}
+
+    def check_entry(self, index):
+        bucket = self.chart[index]
+        time_string = datetime.utcfromtimestamp(index/1000).isoformat()
+
+        # Entry:
+        # If:
+        # - Current candle is Bearish *AND*
+        # - Previous candle was Bullish *AND*
+        # - Delta EMA 10 is positive
+        # Then:
+        # - Buy one position
+        # Exit:
+        # - First Bullish candle
+
+        # Candle is bearish
+        if bucket.close >= bucket.open:
+            self.previous_candle_bullish = True
+            return PatternAction.WAIT, None
+
+        if not self.previous_candle_bullish:
+            return PatternAction.WAIT, None
+        self.previous_candle_bullish = False
+
+        # Trending up
+        if bucket.metric['ema10_delta'] <= 0:
+            return PatternAction.WAIT, None
+
+        if bucket.metric['ema10'] < bucket.metric['ema25']:
+            return PatternAction.WAIT, None
+
+        # one position at a time
+        if len(self.open_positions) > 0:
+            return PatternAction.WAIT, None
+
+        new_opportunity = {'target_entry_price': bucket.close}
+        print('New Opportunity: {entry}'.format(entry=new_opportunity['target_entry_price']))
+        self.open_positions[index] = new_opportunity
+        return PatternAction.GO_LONG, new_opportunity
+
+
+    def check_exit(self, index):
+
+        # Exit:
+        # - Next candle
+
+        bucket = self.chart[index]
+        trades_to_exit = {}
+        remaining_trades = {}
+
+        for trade_index, trade in self.open_positions.items():
+            if trade_index != index:
+                trades_to_exit[trade_index] = trade
+                trade['actual_exit_price'] = bucket.close
+            else:
+                remaining_trades[trade_index] = trade
+        self.open_positions = remaining_trades
+
+        if trades_to_exit:
+            return PatternAction.EXIT_TRADE, trades_to_exit
 
         return PatternAction.HOLD, None
 

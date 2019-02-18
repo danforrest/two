@@ -13,9 +13,7 @@ import copy
 import json
 from candlestick_chart import CandleStickChart
 from binance.enums import *
-from pattern_checker import PatternAction, BullCryptoMovingAverageChecker, BearCryptoMovingAverageChecker
-from pattern_checker_test import BullCryptoMovingAverageCheckerTest, BearCryptoMovingAverageCheckerTest, \
-    RadgeMeanReversion, PumpReversion
+from pattern_checker_test import PatternAction, SimplePumpReversion, PumpReversion, SimpleMeanReversion
 import decimal
 
 HALF_DAY = timedelta(hours=12)
@@ -49,7 +47,7 @@ class Trade:
     fees = 0.0
 
 
-class BinanceTrend:
+class BinancePositionTest:
     api_key = ''
     api_secret = ''
 
@@ -59,7 +57,7 @@ class BinanceTrend:
     # pair priorities USDT always comes last in a pair.  BTC always comes after all
     # coins other than USDT.  ETH comes after all coins other than USDT and BTC.
     # also, pair should go COIN1/COIN3, COIN2/COIN1, COIN2/COIN3
-    COIN1 = 'ETH'
+    COIN1 = 'BNB'
     COIN2 = 'USDT'
     PAIR1 = COIN1 + COIN2 #'BTCUSDT'
 
@@ -71,12 +69,13 @@ class BinanceTrend:
     balance_book = {'timestamp': None,
                     'locked': False,
                     'BTC': {'free': 0.3, 'locked': 0.0},
-                    'ETH': {'free': 8.0, 'locked': 0.0},
+                    # 'ETH': {'free': 8.0, 'locked': 0.0},
+                    'ETH': {'free': 0.0, 'locked': 0.0},
                     'LTC': {'free': 30.0, 'locked': 0.0},
                     'BNB': {'free': 170.0, 'locked': 0.0},
                     'USDT': {'free': 1000.0, 'locked': 0.0}}
 
-    interval = Client.KLINE_INTERVAL_15MINUTE
+    interval = Client.KLINE_INTERVAL_1DAY
     candlesticks = {PAIR1: CandleStickChart(PAIR1, interval)}
 
     def __init__(self):
@@ -119,8 +118,7 @@ class BinanceTrend:
 
 
     def update_historical_candlesticks(self):
-        klines = self.client.get_historical_klines(self.PAIR1, self.interval, "15 months ago UTC")
-        # klines = self.client.get_historical_klines(self.PAIR1, self.interval, "1 Oct, 2017", "31 Jan, 2019")
+        klines = self.client.get_historical_klines(self.PAIR1, self.interval, "12 months ago UTC")
         for candlestick in klines:
             start_time = int(candlestick[0])
             if start_time not in self.candlesticks[self.PAIR1].chart_data:
@@ -133,28 +131,13 @@ class BinanceTrend:
                                                         close=float(candlestick[4]),
                                                         volume=float(candlestick[5]),
                                                         finished=True)
-        # current_month = date(year=2017, month=10, day=1)
-        # end_month = date(year=2019, month=1, day=1)
-        # while current_month <= end_month:
-        #     print('importing {date:%Y} {date:%m}'.format(date=current_month))
-        #     filename = '{dir}\\{pair}_{interval}_{date:%Y}_{date:%m}_candlesticks.json'.format(dir='data',
-        #                                                                                        pair=self.PAIR1,
-        #                                                                                        interval=self.interval,
-        #                                                                                        date=current_month)
-        #     self.candlesticks[self.PAIR1].import_json(filename)
-        #     current_month = date(year=current_month.year + (current_month.month // 12),
-        #                          month=(current_month.month % 12) +1,
-        #                          day=1)
-
-
         print('count: {}'.format(len(self.candlesticks[self.PAIR1].chart_data)))
-        #self.candlesticks[self.PAIR1].export_json_by_month()
 
         self.candlesticks[self.PAIR1].recalc_all_metrics()
         print('metrics calculated')
 
         # the first 100 candles are used to initialize the EMA100 values
-        for skip in range(0,100):
+        for skip in range(0, 10):
             self.candlesticks[self.PAIR1].to_be_processed.get()
 
 
@@ -199,13 +182,11 @@ class BinanceTrend:
 
         chart = self.candlesticks[self.PAIR1]
         checker_list = dict()
-        checker_list['BullCryptoMA'] = BullCryptoMovingAverageChecker(chart.chart_data)
-        checker_list['BearCryptoMA'] = BearCryptoMovingAverageChecker(chart.chart_data)
-        # checker_list['PumpReversion'] = PumpReversion(chart.chart_data)
-        current_status = PatternAction.WAIT
-        current_checker = None
-        checker_name = None
-        current_trade = None
+        #checker_list['PumpReversion'] = SimplePumpReversion(chart.chart_data)
+        checker_list['SimpleMeanReversion'] = SimpleMeanReversion(chart.chart_data)
+        open_positions = {}
+        MAX_POSITIONS = 10
+        SIZE_PER_POSITION = self.balance_book['USDT']['free'] / MAX_POSITIONS
         stats = {}
         win_count = 0
         win_total = 0
@@ -215,74 +196,55 @@ class BinanceTrend:
         loss_cost = 0
         fees = 0
 
+        print('starting balance: {} max positions: {} size per position: {}'.format(self.balance_book['USDT']['free'],
+                                                                                    MAX_POSITIONS,
+                                                                                    SIZE_PER_POSITION))
+        print('start loop?')
         while not self.candlesticks[self.PAIR1].to_be_processed.empty():
             time_stamp = self.candlesticks[self.PAIR1].to_be_processed.get()
-            # print('timestamp is ready: {} {}'.format(datetime.utcfromtimestamp(time_stamp / 1000).isoformat(),
-            #                                          chart.to_be_processed.qsize()))
+            print('timestamp is ready: {} {}'.format(datetime.utcfromtimestamp(time_stamp / 1000).isoformat(),
+                                                     chart.to_be_processed.qsize()))
 
-            # determine what action we want to take next, if any
-            proposed_action = None
-            position = None
-            if current_status in [PatternAction.WAIT]:
-                # we are currently not in a trade, see if we should go long or short or do nothing
-                for name, checker in checker_list.items():
+            if len(open_positions) < MAX_POSITIONS:
+                # we have open positions to trade, look for new opportunities
+                for checker_name, checker in checker_list.items():
                     proposed_action, position = checker.check_entry(time_stamp)
                     if proposed_action in [PatternAction.GO_LONG, PatternAction.GO_SHORT]:
-                        # go with the first algo that gives us a signal (initially, the two are mutually
-                        # exclusive, will need to update when they overlap)
-                        current_checker = checker
-                        checker_name = name
-                        break
-            elif current_status in [PatternAction.HOLD]:
+                        print('{time} {action} {checker}'.format(time=datetime.utcfromtimestamp(time_stamp / 1000).isoformat(),
+                                                                 action=proposed_action,
+                                                                 checker=checker_name))
+                        open_positions[time_stamp] = position
+                        current_trade = self.enter_trade(direction=proposed_action,
+                                                         price_in=position['target_entry_price'],
+                                                         #stop_loss=position['stop_loss'],
+                                                         dollar_size=SIZE_PER_POSITION)
+                        current_trade['checker'] = checker_name
+                        position['trade'] = current_trade
+                        if len(open_positions) == MAX_POSITIONS:
+                            break
+
+            if len(open_positions) > 0:
                 # we are currently in a trade, see if we should exit
-                proposed_action, position = current_checker.check_exit(time_stamp)
+                for checker_name, checker in checker_list.items():
+                    proposed_action, position_set = checker.check_exit(time_stamp)
 
-                # # if we make a substantial gain, update the stop loss point
-                # if current_trade is not None and 'price_in' in current_trade:
-                #     price_in = current_trade['price_in']
-                #     current_price = chart.chart_data[time_stamp].close
-                #     if current_trade['direction'] == 'ACTION_SHORT' and price_in / current_price >= 1.04:
-                #         percent_jump = current_price / price_in
-                #         percent_jump += 0.02
-                #         new_stop_loss = price_in * percent_jump # 0.97
-                #         print('{} {} Update stop loss point to: {}'.format(price_in, current_price, new_stop_loss))
-                #         current_checker.stop_loss = new_stop_loss
-                #     elif current_trade['direction'] == 'ACTION_LONG' and current_price / price_in >= 1.04:
-                #         percent_jump = current_price / price_in
-                #         percent_jump -= 0.02
-                #         new_stop_loss = price_in * percent_jump #1.03
-                #         print('{} {} Update stop loss point to: {}'.format(price_in, current_price, new_stop_loss))
-                #         current_checker.stop_loss = new_stop_loss
+                    if proposed_action == PatternAction.EXIT_TRADE:
+                        for index, position in position_set.items():
+                            # time to exit
+                            print('{time} {action} {checker}'.format(time=datetime.utcfromtimestamp(time_stamp / 1000).isoformat(),
+                                                                     action=proposed_action,
+                                                                     checker=position['trade']['checker']))
+                            self.exit_trade(position['trade'], position['actual_exit_price'])
 
-            if proposed_action in [PatternAction.GO_LONG, PatternAction.GO_SHORT]:
-                # we found an opportunity, enter a trade
-                print('{time} {action} {checker}'.format(time=datetime.utcfromtimestamp(time_stamp / 1000).isoformat(),
-                                                         action=proposed_action,
-                                                         checker=checker_name))
-                current_trade = self.enter_trade(direction=proposed_action,
-                                                 price_in=chart.chart_data[time_stamp].close,
-                                                 stop_loss=current_checker.stop_loss,
-                                                 max_risk=self.MAX_RISK * self.balance_book['USDT']['free'])
-                current_trade['pattern'] = checker_name
-                current_status = PatternAction.HOLD
-                current_checker.status = PatternAction.HOLD
+                            # update statistics
+                            self.update_stats(stats, position['trade'], time_stamp)
+                            del open_positions[index]
 
-            elif proposed_action == PatternAction.EXIT_TRADE:
-                # time to exit
-                print('{time} {action} {checker}'.format(time=datetime.utcfromtimestamp(time_stamp / 1000).isoformat(),
-                                                         action=proposed_action,
-                                                         checker=checker_name))
-                self.exit_trade(current_trade, price_out=position)
-                current_status = PatternAction.WAIT
-                current_checker.status = PatternAction.WAIT
-
-                # update statistics
-                self.update_stats(stats, current_trade, time_stamp)
         # exit the last trade early if we're still in the market
-        if current_checker.status == PatternAction.HOLD:
-            print('{} {}'.format(datetime.utcfromtimestamp(time_stamp / 1000).isoformat(), 'Forced Exit'))
-            self.exit_trade(current_trade, price_out=self.candlesticks[self.PAIR1].chart_data[time_stamp].close)
-            self.update_stats(stats, current_trade, time_stamp)
+        # if current_checker.status == PatternAction.HOLD:
+        #     print('{} {}'.format(datetime.utcfromtimestamp(time_stamp / 1000).isoformat(), 'Forced Exit'))
+        #     self.exit_trade(current_trade, price_out=self.candlesticks[self.PAIR1].chart_data[time_stamp].close)
+        #     self.update_stats(stats, current_trade, time_stamp)
 
         print('stats: {}'.format(stats))
         stat_template = '{} Wins {:3} = {:8.4f} ({:7.2f}) Losses {:3} = {:8.4f} ({:7.2f}) Fees: {:7.2f} Total: {:7.2f}'
@@ -302,47 +264,56 @@ class BinanceTrend:
         print(stat_template.format('Total  ', win_count, win_total, win_profit, loss_count, loss_total, loss_cost,
                                    fees, (win_profit + loss_cost)-fees))
         print('Final balance: {:.4f} {:.4f}'.format(self.balance_book['USDT']['free'], self.balance_book[self.COIN1]['free']))
+        print('Open Positions: {}'.format(len(open_positions)))
         end_time = datetime.utcnow()
         print('Runtime: {}'.format(end_time-start_time))
         exit(0)
 
 
-    def enter_trade(self, direction, price_in, stop_loss, max_risk):
+    def enter_trade(self, direction, price_in, stop_loss=0.0, max_risk=None, dollar_size=None):
+        if max_risk is None and dollar_size is None:
+            raise Exception('Max risk and Position size can not both be None')
         print('enter balance: {:.4f} {:.4f}'.format(self.balance_book['USDT']['free'], self.balance_book[self.COIN1]['free']))
         #max_risk = self.MAX_RISK * (self.balance_book['USDT']['free'] + self.balance_book[self.COIN1]['free'] * price_in)
         print('max risk: {} {}'.format(max_risk, (self.balance_book['USDT']['free'] + self.balance_book[self.COIN1]['free'] * price_in)))
+
         max_retracement = abs(price_in - stop_loss)
-        position_size = max_risk / max_retracement
+        actual_risk = None
+        if max_risk is not None:
+            position_size = max_risk / max_retracement
+            if direction == PatternAction.GO_LONG:
+                current_balance = self.balance_book['USDT']['free']
+                if position_size * price_in < 0.9 * current_balance:
+                    actual_risk = max_risk
+                else:
+                    # balance too small to fund at max risk.
+                    position_size = (0.9 * current_balance) / price_in
+                    actual_risk = position_size * max_retracement
 
-        if direction == PatternAction.GO_LONG:
-            current_balance = self.balance_book['USDT']['free']
-            if position_size * price_in < 0.9 * current_balance:
-                actual_risk = max_risk
+                # update balance
+                self.balance_book['USDT']['free'] -= position_size * price_in
+                self.balance_book[self.COIN1]['free'] += position_size
+            elif direction == PatternAction.GO_SHORT:
+                current_balance = self.balance_book[self.COIN1]['free']
+                if position_size < 0.9 * current_balance:
+                    actual_risk = max_risk
+                else:
+                    # balance too small to fund at max risk.
+                    position_size = 0.9 * current_balance
+                    actual_risk = position_size * max_retracement
+
+                # update balance
+                self.balance_book['USDT']['free'] += position_size * price_in
+                self.balance_book[self.COIN1]['free'] -= position_size
             else:
-                # balance too small to fund at max risk.
-                position_size = (0.9 * current_balance) / price_in
-                actual_risk = position_size * max_retracement
-
-            # update balance
+                # Shouldn't happen
+                return
+        elif dollar_size is not None:
+            position_size = dollar_size / price_in
+            actual_risk = position_size * max_retracement
             self.balance_book['USDT']['free'] -= position_size * price_in
             self.balance_book[self.COIN1]['free'] += position_size
 
-        elif direction == PatternAction.GO_SHORT:
-            current_balance = self.balance_book[self.COIN1]['free']
-            if position_size < 0.9 * current_balance:
-                actual_risk = max_risk
-            else:
-                # balance too small to fund at max risk.
-                position_size = 0.9 * current_balance
-                actual_risk = position_size * max_retracement
-
-            # update balance
-            self.balance_book['USDT']['free'] += position_size * price_in
-            self.balance_book[self.COIN1]['free'] -= position_size
-
-        else:
-            # Shouldn't happen
-            return
         print('trade balance: {:.4f} {:.4f}'.format(self.balance_book['USDT']['free'], self.balance_book[self.COIN1]['free']))
 
         fee = position_size * price_in * self.FEE
@@ -366,24 +337,25 @@ class BinanceTrend:
 
 
     def exit_trade(self, trade, price_out):
-        position_mid = 0.5 * (self.balance_book[self.COIN1]['free'] + (self.balance_book['USDT']['free'] / price_out))
+        #position_mid = 0.5 * (self.balance_book[self.COIN1]['free'] + (self.balance_book['USDT']['free'] / price_out))
         trade['price_out'] = price_out
         # trade['fee_out'] = trade['position_size'] * trade['price_out'] * self.FEE
         if trade['direction'] == PatternAction.GO_LONG:
             trade['profit'] = (trade['price_out'] - trade['price_in']) * trade['position_size']
-            position_out = self.balance_book[self.COIN1]['free'] - position_mid
-            self.balance_book['USDT']['free'] += position_out * price_out
-            self.balance_book[self.COIN1]['free'] -= position_out
-            # self.balance_book['USDT']['free'] += trade['position_size'] * price_out
-            # self.balance_book[self.COIN1]['free'] -= trade['position_size']
+            # position_out = self.balance_book[self.COIN1]['free'] - position_mid
+            # self.balance_book['USDT']['free'] += position_out * price_out
+            # self.balance_book[self.COIN1]['free'] -= position_out
+            self.balance_book['USDT']['free'] += trade['position_size'] * price_out
+            self.balance_book[self.COIN1]['free'] -= trade['position_size']
         else:
             trade['profit'] = (trade['price_in'] - trade['price_out']) * trade['position_size']
-            position_out = position_mid - self.balance_book[self.COIN1]['free']
-            self.balance_book['USDT']['free'] -= position_out * price_out
-            self.balance_book[self.COIN1]['free'] += position_out
-            # self.balance_book['USDT']['free'] -= trade['position_size'] * price_out
-            # self.balance_book[self.COIN1]['free'] += trade['position_size']
-        trade['fee_out'] = position_out * trade['price_out'] * self.FEE
+            # position_out = position_mid - self.balance_book[self.COIN1]['free']
+            # self.balance_book['USDT']['free'] -= position_out * price_out
+            # self.balance_book[self.COIN1]['free'] += position_out
+            self.balance_book['USDT']['free'] -= trade['position_size'] * price_out
+            self.balance_book[self.COIN1]['free'] += trade['position_size']
+        # trade['fee_out'] = position_out * trade['price_out'] * self.FEE
+        trade['fee_out'] = trade['position_size'] * trade['price_out'] * self.FEE
 
         trade['R'] = trade['profit'] / trade['risk']
         trade['time_out'] = datetime.utcnow().isoformat()
@@ -423,7 +395,7 @@ class BinanceTrend:
 
 
 if __name__ == "__main__":
-    binance_trend = BinanceTrend()
+    binance_trend = BinancePositionTest()
     binance_trend.check_trend()
 
 

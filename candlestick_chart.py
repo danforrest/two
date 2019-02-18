@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date
 import json
 import plotly
 import plotly.graph_objs as go
@@ -54,7 +54,7 @@ class CandleStickDataPoint:
         self.time_index = time_index
 
     def __repr__(self):
-        return self.to_csv();
+        return self.to_json();
 
     def to_csv(self):
         #return_value = datetime.utcfromtimestamp(self.time_index).isoformat()
@@ -85,7 +85,8 @@ class CandleStickDataPoint:
                         'close': self.close,
                         'high': self.high,
                         'low': self.low,
-                        'total_volume': self.total_volume}#,
+                        'total_volume': self.total_volume,
+                        'finished': self.finished}#,
                         # 'metric': json.dumps(self.metric)}
         return return_value
 
@@ -115,18 +116,29 @@ class CandleStickChart:
         csv_file.write('\n')
         csv_file.close()
 
-    def export_json(self, json_file_name='data.csv'):
+    def export_json(self, json_file_name='data.json', data=None):
         json_file = open(json_file_name, 'w')
-        point_json_list = []
-        for point in self.chart_data['1m']:
-        # for point in self.one_minute_chart:
-            if point is None:
-                point_json_list.append(None)
-            else:
-                point_json_list.append(point.to_json())
-        json_file.write(json.dumps(point_json_list))
+        json_data = {}
+        for timestamp, data_point in data.items():
+            json_data[timestamp] = data_point.to_json()
+        json_file.write(json.dumps(json_data))
         json_file.write('\n')
         json_file.close()
+
+    def export_json_by_month(self):
+        monthly_points = {}
+        for timestamp, candlestick in self.chart_data.items():
+            print('time: {}'.format(timestamp))
+            month = '{date:%Y}_{date:%m}'.format(date=date.fromtimestamp(timestamp/1000))
+            if month not in monthly_points:
+                monthly_points[month] = {}
+            monthly_points[month][timestamp] = candlestick
+        for month, data in monthly_points.items():
+            filename = '{dir}\\{pair}_{interval}_{month}_candlesticks.json'.format(dir='data',
+                                                                                   pair=self.name,
+                                                                                   interval=self.interval,
+                                                                                   month=month)
+            self.export_json(filename, data)
 
     def export_json_string(self):
         point_json_list = []
@@ -139,20 +151,18 @@ class CandleStickChart:
 
     def import_json(self, json_file_name='data.json'):
         json_file = json.load(open(json_file_name, 'r'))
-        for item in json_file:
-            if item is None:
-                self.chart_data['1m'].append(None)
-                # self.one_minute_chart.append(None)
-            else:
-                point = CandleStickDataPoint(item['time_index'])
-                point.open = item['open']
-                point.close = item['close']
-                point.high = item['high']
-                point.low = item['low']
-                point.total_volume = item['total_volume']
-                point.metric = json.loads(item['metric'])
-                self.chart_data['1m'].append(point)
-                # self.one_minute_chart.append(point)
+        for timestamp, data in json_file.items():
+            timestamp = int(timestamp)
+            point = CandleStickDataPoint(timestamp)
+            point.open = data['open']
+            point.close = data['close']
+            point.high = data['high']
+            point.low = data['low']
+            point.total_volume = data['total_volume']
+            point.finished = data['finished']
+            self.chart_data[timestamp] = point
+            if point.finished:
+                self.metric_to_be_processed.put(timestamp)
 
     def export_plotly(self, length):
         date_list = []
@@ -238,10 +248,12 @@ class CandleStickChart:
 
         for period in EMA_PERIODS:
             ema_name = 'ema' + str(period)
+            vol_name = 'vol_' + ema_name
             ema_delta = ema_name + '_delta'
             if previous_index is None:
                 bucket.metric[ema_name] = bucket.close
                 bucket.metric[ema_delta] = 0
+                bucket.metric[vol_name] = bucket.total_volume
             else:
                 previous_bucket = self.chart_data[previous_index]
                 alpha = 2.0 / (period + 1)
@@ -251,6 +263,9 @@ class CandleStickChart:
                 # Add delta_ema to find up/down trends
                 bucket.metric[ema_delta] = bucket.metric[ema_name] - ema_previous
                 #print('time: ', i, chart[i].close, chart[i].metric['ema10'], chart[i].metric['ema20'], chart[i].metric['ema50'], chart[i].metric['ema100'], chart[i].metric['ema200'])
+                # Add volume ema to find pump/dump trends
+                vol_previous = previous_bucket.metric[vol_name]
+                bucket.metric[vol_name] = vol_previous + alpha * (bucket.total_volume - vol_previous)
 
         if 12 in EMA_PERIODS and 26 in EMA_PERIODS:
             if previous_index is None:

@@ -296,6 +296,7 @@ class BinanceTrend:
             order['memo'] = 'FEE_PAYMENT'
             self.log_transaction(order)
             self.log_trade(order)
+            # TODO: set 'fee_price' with average fee amount
 
 
     def update_historical_candlesticks(self):
@@ -688,9 +689,10 @@ class BinanceTrend:
                         checker_name = name
                         break
             elif current_status in [PatternAction.HOLD]:
-                print('check for exit: {} {} {}'.format(chart.chart_data[time_stamp].close,
-                                                        chart.chart_data[time_stamp].metric['ema200'],
-                                                        current_checker.stop_loss))
+                print('check for exit: {} {} {} {}'.format(chart.chart_data[time_stamp].close,
+                                                           chart.chart_data[time_stamp].metric['ema200'],
+                                                           current_trade['price_in'],
+                                                           current_checker.stop_loss))
                 # we are currently in a trade, see if we should exit
                 proposed_action, position = current_checker.check_exit(time_stamp)
 
@@ -719,7 +721,8 @@ class BinanceTrend:
                 print('{time} {action} {checker}'.format(time=datetime.utcfromtimestamp(time_stamp / 1000).isoformat(),
                                                          action=proposed_action,
                                                          checker=checker_name))
-                self.exit_trade(current_trade, price_out=position)
+                self.exit_trade(current_trade, price_out=chart.chart_data[time_stamp].close)
+                current_trade['price_out_threshold'] = position
                 current_status = PatternAction.WAIT
                 current_checker.status = PatternAction.WAIT
                 # we're out of the trade now so we can clear the save point
