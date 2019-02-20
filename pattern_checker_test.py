@@ -621,7 +621,7 @@ class BullCryptoMovingAverageCheckerTest(PatternChecker):
         if bucket.close < self.soft_stop:
             # print('Selling due to stop loss')
             self.status = PatternAction.EXIT_TRADE
-            return PatternAction.EXIT_TRADE, bucket.close
+            return PatternAction.EXIT_TRADE, self.soft_stop
 
         return PatternAction.HOLD, None
 
@@ -756,7 +756,7 @@ class BearCryptoMovingAverageCheckerTest(PatternChecker):
         if bucket.close > self.soft_stop:
             # print('Selling due to stop loss')
             self.status = PatternAction.EXIT_TRADE
-            return PatternAction.EXIT_TRADE, bucket.close
+            return PatternAction.EXIT_TRADE, self.soft_stop
 
         return PatternAction.HOLD, None
 

@@ -689,10 +689,10 @@ class BinanceTrend:
                         checker_name = name
                         break
             elif current_status in [PatternAction.HOLD]:
-                print('check for exit: {} {} {} {}'.format(chart.chart_data[time_stamp].close,
-                                                           chart.chart_data[time_stamp].metric['ema200'],
-                                                           current_trade['price_in'],
-                                                           current_checker.stop_loss))
+                print('check for exit: {:.2f} {:.4f} {:.4f} {:.4f}'.format(chart.chart_data[time_stamp].close,
+                                                                           chart.chart_data[time_stamp].metric['ema200'],
+                                                                           current_trade['price_in'],
+                                                                           current_checker.stop_loss))
                 # we are currently in a trade, see if we should exit
                 proposed_action, position = current_checker.check_exit(time_stamp)
 
@@ -911,8 +911,8 @@ class BinanceTrend:
         print('canceled stop order: {}'.format(stop_order))
         trade['exit_order'] = exit_order
         trade['stop_loss_order'] = stop_order  # TODO make sure the stop order is canceled
-        if exit_order:
-            trade['price_out'] = float(exit_order['price'])  # TODO: make sure the trade is filled before getting the price
+        if exit_order and float(exit_order['price'] > 0):
+            trade['price_out'] = float(exit_order['price'])
         else:
             # we sold the position "virtually" so just use the target price_out
             trade['price_out'] = price_out
@@ -935,7 +935,12 @@ class BinanceTrend:
                                   profit=trade['profit'],
                                   risk=trade['risk'],
                                   reward=trade['R']))
-
+        print('Post-exit balances: {} {}/{} {} {}/{}'.format(self.COIN1,
+                                                             self.balance_book[self.COIN1]['free'],
+                                                             self.balance_book[self.COIN1]['locked'],
+                                                             self.COIN2,
+                                                             self.balance_book[self.COIN2]['free'],
+                                                             self.balance_book[self.COIN2]['locked']))
 
     def quick_exit(self):
         save_point = self.read_save_point()

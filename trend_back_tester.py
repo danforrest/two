@@ -119,36 +119,39 @@ class BinanceTrend:
 
 
     def update_historical_candlesticks(self):
-        klines = self.client.get_historical_klines(self.PAIR1, self.interval, "15 months ago UTC")
-        # klines = self.client.get_historical_klines(self.PAIR1, self.interval, "1 Oct, 2017", "31 Jan, 2019")
-        for candlestick in klines:
-            start_time = int(candlestick[0])
-            if start_time not in self.candlesticks[self.PAIR1].chart_data:
-                self.candlesticks[self.PAIR1].add_match(symbol=self.PAIR1,
-                                                        interval=self.interval,
-                                                        start_time=int(candlestick[0]),
-                                                        open=float(candlestick[1]),
-                                                        high=float(candlestick[2]),
-                                                        low=float(candlestick[3]),
-                                                        close=float(candlestick[4]),
-                                                        volume=float(candlestick[5]),
-                                                        finished=True)
-        # current_month = date(year=2017, month=10, day=1)
-        # end_month = date(year=2019, month=1, day=1)
-        # while current_month <= end_month:
-        #     print('importing {date:%Y} {date:%m}'.format(date=current_month))
-        #     filename = '{dir}\\{pair}_{interval}_{date:%Y}_{date:%m}_candlesticks.json'.format(dir='data',
-        #                                                                                        pair=self.PAIR1,
-        #                                                                                        interval=self.interval,
-        #                                                                                        date=current_month)
-        #     self.candlesticks[self.PAIR1].import_json(filename)
-        #     current_month = date(year=current_month.year + (current_month.month // 12),
-        #                          month=(current_month.month % 12) +1,
-        #                          day=1)
-
+        current_month = date(year=2017, month=10, day=1)
+        end_month = date(year=2019, month=2, day=28)
+        while current_month <= end_month:
+            print('importing {date:%Y} {date:%m}'.format(date=current_month))
+            filename = '{dir}\\{pair}_{interval}_{date:%Y}_{date:%m}_candlesticks.json'.format(dir='data',
+                                                                                               pair=self.PAIR1,
+                                                                                               interval=self.interval,
+                                                                                               date=current_month)
+            next_month = date(year=current_month.year + (current_month.month // 12),
+                              month=(current_month.month % 12)+1,
+                              day=1)
+            success = self.candlesticks[self.PAIR1].import_json(filename)
+            if not success:
+                klines = self.client.get_historical_klines(self.PAIR1,
+                                                           self.interval,
+                                                           current_month.isoformat(),
+                                                           (next_month-timedelta(days=1)).isoformat())
+                print('No data for month: {} download instead'.format(current_month.isoformat()))
+                for candlestick in klines:
+                    start_time = int(candlestick[0])
+                    if start_time not in self.candlesticks[self.PAIR1].chart_data:
+                        self.candlesticks[self.PAIR1].add_match(symbol=self.PAIR1,
+                                                                interval=self.interval,
+                                                                start_time=int(candlestick[0]),
+                                                                open=float(candlestick[1]),
+                                                                high=float(candlestick[2]),
+                                                                low=float(candlestick[3]),
+                                                                close=float(candlestick[4]),
+                                                                volume=float(candlestick[5]),
+                                                                finished=True)
+            current_month = next_month
 
         print('count: {}'.format(len(self.candlesticks[self.PAIR1].chart_data)))
-        #self.candlesticks[self.PAIR1].export_json_by_month()
 
         self.candlesticks[self.PAIR1].recalc_all_metrics()
         print('metrics calculated')
@@ -272,7 +275,7 @@ class BinanceTrend:
                 print('{time} {action} {checker}'.format(time=datetime.utcfromtimestamp(time_stamp / 1000).isoformat(),
                                                          action=proposed_action,
                                                          checker=checker_name))
-                self.exit_trade(current_trade, price_out=position)
+                self.exit_trade(current_trade, price_out=chart.chart_data[time_stamp].close)
                 current_status = PatternAction.WAIT
                 current_checker.status = PatternAction.WAIT
 

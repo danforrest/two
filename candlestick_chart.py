@@ -128,8 +128,7 @@ class CandleStickChart:
     def export_json_by_month(self):
         monthly_points = {}
         for timestamp, candlestick in self.chart_data.items():
-            print('time: {}'.format(timestamp))
-            month = '{date:%Y}_{date:%m}'.format(date=date.fromtimestamp(timestamp/1000))
+            month = '{date:%Y}_{date:%m}'.format(date=datetime.utcfromtimestamp(timestamp/1000))
             if month not in monthly_points:
                 monthly_points[month] = {}
             monthly_points[month][timestamp] = candlestick
@@ -150,7 +149,11 @@ class CandleStickChart:
         return json.dumps(point_json_list)
 
     def import_json(self, json_file_name='data.json'):
-        json_file = json.load(open(json_file_name, 'r'))
+        try:
+            json_file = json.load(open(json_file_name, 'r'))
+        except FileNotFoundError:
+            print('file: {} does not exist'.format(json_file_name))
+            return False
         for timestamp, data in json_file.items():
             timestamp = int(timestamp)
             point = CandleStickDataPoint(timestamp)
@@ -163,6 +166,7 @@ class CandleStickChart:
             self.chart_data[timestamp] = point
             if point.finished:
                 self.metric_to_be_processed.put(timestamp)
+        return True
 
     def export_plotly(self, length):
         date_list = []
